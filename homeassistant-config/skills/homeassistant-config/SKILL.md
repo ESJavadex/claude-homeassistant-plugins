@@ -1,3 +1,8 @@
+---
+name: homeassistant-config
+description: Create and manage Home Assistant YAML configuration files including automations, scripts, templates, blueprints, Lovelace dashboards, and file organization. Use when working with Home Assistant configuration files (.yaml, .yml) or discussing HA automations, scripts, sensors, or dashboards.
+---
+
 # Home Assistant Configuration Skill
 
 Create and manage Home Assistant YAML configuration files including automations, scripts, templates, blueprints, and file organization.

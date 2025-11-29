@@ -8,7 +8,8 @@
     {
       "name": "homeassistant-config",
       "description": "Create, modify, and troubleshoot Home Assistant configuration files and Lovelace dashboards",
-      "source": "./homeassistant-config"
+      "source": "./homeassistant-config",
+      "version": "1.2.4"
     }
   ]
 }
