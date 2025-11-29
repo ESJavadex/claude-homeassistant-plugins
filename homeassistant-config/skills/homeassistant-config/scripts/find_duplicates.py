@@ -25,6 +25,39 @@ except ImportError:
     sys.exit(1)
 
 
+# Custom YAML loader to handle Home Assistant tags
+class HAYamlLoader(yaml.SafeLoader):
+    """YAML loader that handles Home Assistant custom tags."""
+    pass
+
+
+def _ha_tag_constructor(loader, tag_suffix, node):
+    """Handle HA custom tags by returning their value as a string."""
+    if isinstance(node, yaml.ScalarNode):
+        return f"!{tag_suffix} {loader.construct_scalar(node)}"
+    elif isinstance(node, yaml.SequenceNode):
+        return loader.construct_sequence(node)
+    elif isinstance(node, yaml.MappingNode):
+        return loader.construct_mapping(node)
+    return None
+
+
+# Register handlers for common HA tags
+for tag in ['include', 'include_dir_list', 'include_dir_named',
+            'include_dir_merge_list', 'include_dir_merge_named',
+            'secret', 'input', 'env_var']:
+    HAYamlLoader.add_constructor(
+        f'!{tag}',
+        lambda loader, node, t=tag: _ha_tag_constructor(loader, t, node)
+    )
+
+# Handle any unknown tags gracefully
+HAYamlLoader.add_multi_constructor(
+    '',
+    lambda loader, tag, node: _ha_tag_constructor(loader, tag.lstrip('!'), node)
+)
+
+
 class DuplicateFinder:
     """Finds duplicate and similar automations/scripts in HA configuration."""
 
@@ -67,7 +100,7 @@ class DuplicateFinder:
 
         try:
             content = file_path.read_text(encoding='utf-8')
-            data = yaml.safe_load(content)
+            data = yaml.load(content, Loader=HAYamlLoader)
         except yaml.YAMLError as e:
             self.errors.append({
                 "file": str(file_path),
@@ -506,7 +539,16 @@ def main():
     print(json.dumps(result, indent=2, default=str))
 
     # Exit code based on findings
-    if result.get("status") == "duplicates_found":
+    # Only exit 1 for actual duplicates, not trigger conflicts (often intentional)
+    exact_dupes = result.get("exact_duplicates", {})
+    similar = result.get("similar_items", {})
+    has_real_duplicates = (
+        len(exact_dupes.get("automations", [])) > 0 or
+        len(exact_dupes.get("scripts", [])) > 0 or
+        len(similar.get("automations", [])) > 0 or
+        len(similar.get("scripts", [])) > 0
+    )
+    if has_real_duplicates:
         sys.exit(1)
     sys.exit(0)
 
