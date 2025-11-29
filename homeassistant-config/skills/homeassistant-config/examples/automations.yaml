@@ -1,0 +1,219 @@
+# Home Assistant Automations Example
+# Complete working automation examples
+
+# Motion-activated lights
+- alias: "Living Room - Motion Lights On"
+  id: living_room_motion_lights_on
+  description: "Turn on living room lights when motion is detected after sunset"
+  mode: restart
+  triggers:
+    - trigger: state
+      entity_id: binary_sensor.living_room_motion
+      to: "on"
+  conditions:
+    - condition: sun
+      after: sunset
+    - condition: numeric_state
+      entity_id: sensor.living_room_illuminance
+      below: 50
+  actions:
+    - action: light.turn_on
+      target:
+        entity_id: light.living_room
+      data:
+        brightness_pct: 80
+        transition: 2
+
+- alias: "Living Room - Motion Lights Off"
+  id: living_room_motion_lights_off
+  description: "Turn off living room lights after 5 minutes of no motion"
+  mode: restart
+  triggers:
+    - trigger: state
+      entity_id: binary_sensor.living_room_motion
+      to: "off"
+      for:
+        minutes: 5
+  conditions:
+    - condition: state
+      entity_id: light.living_room
+      state: "on"
+  actions:
+    - action: light.turn_off
+      target:
+        entity_id: light.living_room
+      data:
+        transition: 5
+
+# Welcome home automation
+- alias: "Presence - Welcome Home"
+  id: presence_welcome_home
+  description: "Welcome routine when arriving home"
+  mode: single
+  triggers:
+    - trigger: state
+      entity_id: person.john
+      to: "home"
+  conditions:
+    - condition: sun
+      after: sunset
+  actions:
+    - action: light.turn_on
+      target:
+        area_id: entryway
+      data:
+        brightness_pct: 100
+    - action: climate.set_temperature
+      target:
+        entity_id: climate.thermostat
+      data:
+        temperature: 22
+
+# Goodbye routine
+- alias: "Presence - Goodbye"
+  id: presence_goodbye
+  description: "Turn off everything when leaving home"
+  mode: single
+  triggers:
+    - trigger: state
+      entity_id: person.john
+      from: "home"
+      to: "not_home"
+      for:
+        minutes: 5
+  actions:
+    - action: light.turn_off
+      target:
+        entity_id: all
+    - action: climate.set_temperature
+      target:
+        entity_id: climate.thermostat
+      data:
+        temperature: 18
+    - action: notify.mobile_app_phone
+      data:
+        title: "Goodbye"
+        message: "All lights turned off, thermostat set to away mode"
+
+# Morning routine
+- alias: "Time - Morning Routine"
+  id: time_morning_routine
+  description: "Weekday morning routine"
+  mode: single
+  triggers:
+    - trigger: time
+      at: "07:00:00"
+  conditions:
+    - condition: time
+      weekday:
+        - mon
+        - tue
+        - wed
+        - thu
+        - fri
+    - condition: state
+      entity_id: person.john
+      state: "home"
+  actions:
+    - action: light.turn_on
+      target:
+        entity_id: light.bedroom
+      data:
+        brightness_pct: 30
+        transition: 300
+    - delay:
+        minutes: 5
+    - action: light.turn_on
+      target:
+        entity_id: light.bedroom
+      data:
+        brightness_pct: 100
+        transition: 60
+
+# Door left open alert
+- alias: "Security - Door Open Alert"
+  id: security_door_open_alert
+  description: "Alert when front door is left open"
+  mode: single
+  triggers:
+    - trigger: state
+      entity_id: binary_sensor.front_door
+      to: "on"
+      for:
+        minutes: 5
+  actions:
+    - action: notify.mobile_app_phone
+      data:
+        title: "Security Alert"
+        message: "Front door has been open for 5 minutes"
+        data:
+          actions:
+            - action: "DISMISS"
+              title: "Dismiss"
+
+# Climate - window open
+- alias: "Climate - Window Open Pause"
+  id: climate_window_open
+  description: "Pause heating when window is opened"
+  mode: single
+  triggers:
+    - trigger: state
+      entity_id: binary_sensor.bedroom_window
+      to: "on"
+      for:
+        minutes: 2
+  conditions:
+    - condition: not
+      conditions:
+        - condition: state
+          entity_id: climate.thermostat
+          state: "off"
+  actions:
+    - action: climate.turn_off
+      target:
+        entity_id: climate.thermostat
+    - action: notify.mobile_app_phone
+      data:
+        message: "Heating paused - bedroom window is open"
+
+# Bedtime routine
+- alias: "Time - Bedtime"
+  id: time_bedtime
+  description: "Prepare for bedtime"
+  mode: single
+  triggers:
+    - trigger: time
+      at: "22:30:00"
+  conditions:
+    - condition: state
+      entity_id: person.john
+      state: "home"
+  actions:
+    - action: light.turn_off
+      target:
+        entity_id:
+          - light.living_room
+          - light.kitchen
+    - action: light.turn_on
+      target:
+        entity_id: light.bedroom
+      data:
+        brightness_pct: 20
+        color_temp_kelvin: 2700
+
+# Low battery notification
+- alias: "Notification - Low Battery"
+  id: notification_low_battery
+  description: "Notify when device battery is low"
+  mode: queued
+  triggers:
+    - trigger: numeric_state
+      entity_id:
+        - sensor.phone_battery
+        - sensor.tablet_battery
+      below: 20
+  actions:
+    - action: notify.mobile_app_phone
+      data:
+        title: "Low Battery"
+        message: "{{ trigger.to_state.name }} is at {{ trigger.to_state.state }}%"

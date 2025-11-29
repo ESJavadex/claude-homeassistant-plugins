@@ -1,0 +1,211 @@
+# Home Assistant Scripts Example
+# Reusable script definitions
+
+# Morning routine script
+morning_routine:
+  alias: "Morning Routine"
+  description: "Complete morning routine with customizable brightness"
+  icon: mdi:weather-sunset-up
+  fields:
+    brightness:
+      description: "Target brightness percentage"
+      example: 80
+      default: 100
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 10
+          unit_of_measurement: "%"
+  sequence:
+    - action: light.turn_on
+      target:
+        area_id: bedroom
+      data:
+        brightness_pct: "{{ brightness | default(100) }}"
+        transition: 30
+    - action: climate.set_temperature
+      target:
+        entity_id: climate.thermostat
+      data:
+        temperature: 22
+    - action: media_player.volume_set
+      target:
+        entity_id: media_player.bedroom_speaker
+      data:
+        volume_level: 0.3
+
+# Goodbye routine script
+goodbye_routine:
+  alias: "Goodbye Routine"
+  description: "Secure home when leaving"
+  icon: mdi:home-export-outline
+  sequence:
+    - parallel:
+        - action: light.turn_off
+          target:
+            entity_id: all
+        - action: media_player.turn_off
+          target:
+            entity_id: all
+        - action: climate.set_temperature
+          target:
+            entity_id: climate.thermostat
+          data:
+            temperature: 18
+    - action: lock.lock
+      target:
+        entity_id: lock.front_door
+    - action: notify.mobile_app_phone
+      data:
+        title: "Home Secured"
+        message: "All lights off, doors locked, thermostat set to away"
+
+# Movie mode script
+movie_mode:
+  alias: "Movie Mode"
+  description: "Set up living room for movie watching"
+  icon: mdi:movie-open
+  sequence:
+    - action: light.turn_off
+      target:
+        area_id: living_room
+    - delay:
+        seconds: 2
+    - action: light.turn_on
+      target:
+        entity_id: light.living_room_bias
+      data:
+        brightness_pct: 10
+        rgb_color: [255, 147, 41]
+    - action: media_player.turn_on
+      target:
+        entity_id: media_player.tv
+
+# Flash lights script (for notifications)
+flash_lights:
+  alias: "Flash Lights"
+  description: "Flash lights for visual notification"
+  icon: mdi:alarm-light
+  fields:
+    target_light:
+      description: "Light to flash"
+      example: "light.living_room"
+      selector:
+        entity:
+          domain: light
+    flash_count:
+      description: "Number of flashes"
+      example: 3
+      default: 3
+      selector:
+        number:
+          min: 1
+          max: 10
+  sequence:
+    - repeat:
+        count: "{{ flash_count | default(3) }}"
+        sequence:
+          - action: light.turn_on
+            target:
+              entity_id: "{{ target_light }}"
+            data:
+              brightness_pct: 100
+          - delay:
+              milliseconds: 500
+          - action: light.turn_off
+            target:
+              entity_id: "{{ target_light }}"
+          - delay:
+              milliseconds: 500
+
+# Notify all devices
+notify_all:
+  alias: "Notify All Devices"
+  description: "Send notification to all family members"
+  icon: mdi:bell-ring
+  fields:
+    title:
+      description: "Notification title"
+      example: "Alert"
+      selector:
+        text:
+    message:
+      description: "Notification message"
+      example: "Something happened"
+      selector:
+        text:
+          multiline: true
+    priority:
+      description: "Notification priority"
+      example: "high"
+      default: "normal"
+      selector:
+        select:
+          options:
+            - normal
+            - high
+  sequence:
+    - action: notify.notify
+      data:
+        title: "{{ title }}"
+        message: "{{ message }}"
+        data:
+          priority: "{{ priority | default('normal') }}"
+
+# Vacuum room script
+vacuum_room:
+  alias: "Vacuum Specific Room"
+  description: "Start vacuum in selected room"
+  icon: mdi:robot-vacuum
+  fields:
+    room:
+      description: "Room to vacuum"
+      example: "living_room"
+      selector:
+        select:
+          options:
+            - living_room
+            - bedroom
+            - kitchen
+  sequence:
+    - action: vacuum.send_command
+      target:
+        entity_id: vacuum.robot
+      data:
+        command: "app_segment_clean"
+        params:
+          segments:
+            - "{{ room }}"
+
+# Bedtime routine
+bedtime_routine:
+  alias: "Bedtime Routine"
+  description: "Prepare house for sleep"
+  icon: mdi:bed
+  sequence:
+    - parallel:
+        - sequence:
+            - action: light.turn_off
+              target:
+                entity_id:
+                  - light.living_room
+                  - light.kitchen
+                  - light.bathroom
+            - action: light.turn_on
+              target:
+                entity_id: light.bedroom
+              data:
+                brightness_pct: 20
+                color_temp_kelvin: 2700
+        - action: lock.lock
+          target:
+            entity_id: all
+        - action: cover.close_cover
+          target:
+            entity_id: cover.bedroom_blinds
+    - action: climate.set_temperature
+      target:
+        entity_id: climate.thermostat
+      data:
+        temperature: 19

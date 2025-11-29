@@ -1,0 +1,8 @@
+{
+  "name": "homeassistant-config",
+  "description": "Create, modify, and troubleshoot Home Assistant configuration files",
+  "version": "1.0.0",
+  "author": {
+    "name": "claude-homeassistant-plugins"
+  }
+}
