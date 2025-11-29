@@ -7,6 +7,24 @@ description: Create and manage Home Assistant YAML configuration files including
 
 Create and manage Home Assistant YAML configuration files including automations, scripts, templates, blueprints, and file organization.
 
+## Validation Scripts
+
+This skill includes scripts to validate and analyze Home Assistant configurations.
+
+### YAML Validator
+Validates YAML syntax and checks for common HA issues (tabs, unquoted booleans, deprecated syntax):
+```bash
+python3 {baseDir}/scripts/validate_yaml.py /path/to/config.yaml
+python3 {baseDir}/scripts/validate_yaml.py /path/to/config.yaml --strict
+```
+
+### Configuration Checker
+Analyzes HA configuration structure, finds entities, tracks includes and secrets:
+```bash
+python3 {baseDir}/scripts/check_config.py /path/to/config/directory
+python3 {baseDir}/scripts/check_config.py /path/to/config.yaml --verbose
+```
+
 ## YAML Requirements
 
 - **Indentation**: 2 spaces per level (never tabs)
