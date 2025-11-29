@@ -1,7 +1,7 @@
 {
-  "name": "Claude Home Assistant Plugins",
+  "name": "claude-homeassistant-plugins",
   "description": "Plugins for Home Assistant, ESPHome, and smart home automation with Claude Code",
-  "author": "ESJavadex",
+  "owner": "ESJavadex",
   "plugins": [
     {
       "name": "homeassistant-config",
