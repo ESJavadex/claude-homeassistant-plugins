@@ -9,7 +9,7 @@
       "name": "homeassistant-config",
       "description": "Create, modify, and troubleshoot Home Assistant configuration files and Lovelace dashboards",
       "source": "./homeassistant-config",
-      "version": "1.5.0"
+      "version": "1.5.1"
     }
   ]
 }
