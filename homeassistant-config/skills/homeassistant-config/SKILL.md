@@ -371,6 +371,133 @@ template:
           {{ states('sensor.plug_1_power') not in ['unknown', 'unavailable'] }}
 ```
 
+## Lovelace Dashboards
+
+### Enable YAML Mode
+```yaml
+# configuration.yaml
+lovelace:
+  mode: yaml
+```
+
+### Basic Dashboard Structure
+```yaml
+# ui-lovelace.yaml
+title: My Home
+views:
+  - title: Home
+    path: home
+    icon: mdi:home
+    cards:
+      - type: entities
+        title: Living Room
+        entities:
+          - light.living_room
+          - switch.fan
+```
+
+### Common Card Types
+
+**Entities Card**
+```yaml
+type: entities
+title: Room Controls
+state_color: true
+entities:
+  - entity: light.ceiling
+    name: Ceiling Light
+  - type: divider
+  - entity: climate.thermostat
+```
+
+**Button Card**
+```yaml
+type: button
+entity: light.bedroom
+name: Bedroom
+icon: mdi:lightbulb
+tap_action:
+  action: toggle
+hold_action:
+  action: more-info
+```
+
+**Grid Layout**
+```yaml
+type: grid
+columns: 3
+square: true
+cards:
+  - type: button
+    entity: light.1
+  - type: button
+    entity: light.2
+  - type: button
+    entity: light.3
+```
+
+**Area Card**
+```yaml
+type: area
+area: living_room
+display_type: compact
+navigation_path: /lovelace/living-room
+sensor_classes:
+  - temperature
+  - humidity
+```
+
+**Conditional Card**
+```yaml
+type: conditional
+conditions:
+  - condition: state
+    entity: person.john
+    state: home
+card:
+  type: entities
+  entities:
+    - light.johns_room
+```
+
+### Card Actions
+```yaml
+tap_action:
+  action: toggle           # Toggle entity
+  # action: more-info      # Show details
+  # action: navigate       # Go to view
+  #   navigation_path: /lovelace/lights
+  # action: call-service   # Call action
+  #   service: light.turn_on
+  #   target:
+  #     entity_id: light.all
+```
+
+### Popular Custom Cards (via HACS)
+
+**Mushroom Cards**
+```yaml
+type: custom:mushroom-light-card
+entity: light.bedroom
+show_brightness_control: true
+use_light_color: true
+```
+
+**Button Card (Custom)**
+```yaml
+type: custom:button-card
+entity: light.bedroom
+name: Bedroom
+styles:
+  card:
+    - border-radius: 12px
+state:
+  - value: "on"
+    styles:
+      icon:
+        - color: amber
+```
+
 ## Validation Tools
 
 1. **Developer Tools > YAML**: Check configuration syntax
@@ -450,6 +577,7 @@ actions:
 For detailed patterns and examples, see:
 - `references/patterns.md` - Common automation patterns
 - `references/templates.md` - Template sensor examples
+- `references/lovelace.md` - Dashboard cards and layouts
 - `references/troubleshooting.md` - Error solutions
 - `references/best-practices.md` - Optimization tips
 - `references/blueprints.md` - Blueprint creation guide
