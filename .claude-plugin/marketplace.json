@@ -1,0 +1,12 @@
+{
+  "name": "Claude Home Assistant Plugins",
+  "description": "Plugins for Home Assistant, ESPHome, and smart home automation with Claude Code",
+  "author": "ESJavadex",
+  "plugins": [
+    {
+      "name": "homeassistant-config",
+      "description": "Create, modify, and troubleshoot Home Assistant configuration files and Lovelace dashboards",
+      "source": "./homeassistant-config"
+    }
+  ]
+}
