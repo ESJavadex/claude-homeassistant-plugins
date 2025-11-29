@@ -6,27 +6,49 @@ A curated collection of Claude Code plugins for Home Assistant, ESPHome, and sma
 
 | Plugin | Description | Version |
 |--------|-------------|---------|
-| [homeassistant-config](./homeassistant-config) | Create, modify, and troubleshoot Home Assistant configuration files | 1.0.0 |
+| [homeassistant-config](./homeassistant-config) | Create, modify, and troubleshoot Home Assistant configuration files | 1.0.1 |
 
 ## Installation
 
-### Add the Marketplace
+Plugins are installed using Claude Code's `/plugin` command (now in public beta).
 
-```bash
-claude mcp add-json claude-plugins '{"type":"url","url":"https://raw.githubusercontent.com/YOUR_USERNAME/claude-homeassistant-plugins/main/.claude-plugin/plugin.json"}'
+### Option 1: Interactive Installation (Recommended)
+
+1. **Add the marketplace** - In Claude Code, run:
+   ```
+   /plugin marketplace add ESJavadex/claude-homeassistant-plugins
+   ```
+
+2. **Browse and install** - Run `/plugin` and select "Browse Plugins" to view available plugins with descriptions and install options.
+
+### Option 2: Direct Installation
+
+After adding the marketplace, install plugins directly:
+
+```
+/plugin install homeassistant-config@claude-homeassistant-plugins
 ```
 
-### Install Individual Plugins
+### Option 3: Using npx CLI
 
-After adding the marketplace, install plugins:
+Install without manually adding the marketplace first:
 
 ```bash
-# Install Home Assistant Config plugin
-cd /path/to/your/project
-claude install homeassistant-config
+npx claude-plugins install @ESJavadex/claude-homeassistant-plugins/homeassistant-config
 ```
 
-Restart Claude Code to activate newly installed plugins.
+### Managing Plugins
+
+| Command | Description |
+|---------|-------------|
+| `/plugin` | Open plugin menu to browse/manage |
+| `/plugin enable plugin-name@marketplace` | Enable a disabled plugin |
+| `/plugin disable plugin-name@marketplace` | Disable without removing |
+| `/plugin uninstall plugin-name@marketplace` | Remove completely |
+
+### Verify Installation
+
+After installation, run `/help` to confirm new commands appear, or use `/plugin` → "Manage Plugins" to review installed features.
 
 ## Plugin Structure
 
@@ -66,6 +88,8 @@ MIT License - See [LICENSE](LICENSE) for details.
 
 ## Resources
 
-- [Claude Code Documentation](https://docs.anthropic.com/claude-code)
+- [Claude Code Plugins Documentation](https://code.claude.com/docs/en/plugins)
+- [Plugin Marketplaces Guide](https://code.claude.com/docs/en/plugin-marketplaces)
+- [Anthropic Blog: Claude Code Plugins](https://claude.com/blog/claude-code-plugins)
 - [Home Assistant](https://www.home-assistant.io/)
 - [ESPHome](https://esphome.io/)

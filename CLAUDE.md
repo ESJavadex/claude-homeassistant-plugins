@@ -40,8 +40,11 @@ After every commit, bump the version in the plugin's `plugin.json` file followin
 
 ```bash
 # Add marketplace
-claude mcp add-json claude-plugins '{"type":"url","url":"https://raw.githubusercontent.com/USER/claude-homeassistant-plugins/main/.claude-plugin/plugin.json"}'
+/plugin marketplace add ESJavadex/claude-homeassistant-plugins
 
-# Install plugin
-claude install homeassistant-config
+# Browse and install interactively
+/plugin
+
+# Or install directly
+/plugin install homeassistant-config@claude-homeassistant-plugins
 ```
