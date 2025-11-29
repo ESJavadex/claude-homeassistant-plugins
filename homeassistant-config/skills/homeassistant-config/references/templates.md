@@ -323,3 +323,273 @@ template:
           {% set celsius = states('sensor.temperature') | float(0) %}
           {{ ((celsius * 9/5) + 32) | round(1) }}
 ```
+
+## Response Variable Templates
+
+### Weather Forecast Sensor
+```yaml
+template:
+  - triggers:
+      - trigger: time_pattern
+        hours: /1
+    actions:
+      - action: weather.get_forecasts
+        data:
+          type: hourly
+        target:
+          entity_id: weather.home
+        response_variable: hourly
+    sensor:
+      - name: "Weather Forecast Hourly"
+        unique_id: weather_forecast_hourly
+        state: "{{ now().isoformat() }}"
+        attributes:
+          forecast: "{{ hourly['weather.home'].forecast }}"
+          next_temp: "{{ hourly['weather.home'].forecast[0].temperature }}"
+          next_condition: "{{ hourly['weather.home'].forecast[0].condition }}"
+```
+
+### Calendar Events Sensor
+```yaml
+template:
+  - triggers:
+      - trigger: time_pattern
+        minutes: /30
+    actions:
+      - action: calendar.get_events
+        target:
+          entity_id: calendar.work
+        data:
+          duration:
+            hours: 24
+        response_variable: events
+    sensor:
+      - name: "Today's Events Count"
+        unique_id: todays_events_count
+        state: "{{ events['calendar.work'].events | count }}"
+        attributes:
+          events: "{{ events['calendar.work'].events }}"
+          next_event: >
+            {% set e = events['calendar.work'].events | first %}
+            {{ e.summary if e else 'None' }}
+```
+
+### Merge Multiple Responses
+```yaml
+template:
+  - triggers:
+      - trigger: time_pattern
+        hours: /6
+    actions:
+      - action: weather.get_forecasts
+        data:
+          type: daily
+        target:
+          entity_id:
+            - weather.home
+            - weather.work
+        response_variable: forecasts
+    sensor:
+      - name: "Combined Weather"
+        unique_id: combined_weather
+        state: "{{ now().isoformat() }}"
+        attributes:
+          home_forecast: "{{ forecasts['weather.home'].forecast }}"
+          work_forecast: "{{ forecasts['weather.work'].forecast }}"
+```
+
+## Advanced Filter Usage
+
+### Apply Filter (call macros as filters)
+```yaml
+template:
+  - sensor:
+      - name: "Doubled Values"
+        state: >
+          {% macro double(x) %}{{ x * 2 }}{% endmacro %}
+          {{ [1, 2, 3, 4] | map('apply', double) | list | join(', ') }}
+```
+
+### Complex List Processing
+```yaml
+template:
+  - sensor:
+      - name: "High Power Devices"
+        state: >
+          {% set devices = states.sensor
+             | selectattr('attributes.device_class', 'eq', 'power')
+             | selectattr('state', 'is_number')
+             | rejectattr('state', 'in', ['unknown', 'unavailable'])
+             | list %}
+          {% set high_power = devices | selectattr('state', 'gt', '100') | list %}
+          {{ high_power | count }}
+        attributes:
+          devices: >
+            {{ states.sensor
+               | selectattr('attributes.device_class', 'eq', 'power')
+               | selectattr('state', 'is_number')
+               | rejectattr('state', 'in', ['unknown', 'unavailable'])
+               | selectattr('state', 'gt', '100')
+               | map(attribute='entity_id')
+               | list }}
+```
+
+### Groupby Filter
+```yaml
+template:
+  - sensor:
+      - name: "Lights by Area"
+        state: "{{ states.light | count }}"
+        attributes:
+          by_area: >
+            {% set lights = states.light | list %}
+            {% set grouped = {} %}
+            {% for light in lights %}
+              {% set area = area_name(light.entity_id) or 'Unknown' %}
+              {% set _ = grouped.__setitem__(area, grouped.get(area, []) + [light.name]) %}
+            {% endfor %}
+            {{ grouped }}
+```
+
+## JSON Processing Templates
+
+### Parse Nested JSON
+```yaml
+template:
+  - sensor:
+      - name: "API Response Value"
+        state: >
+          {% set data = {"name": "Outside", "device": "weather", "data": {"temp": "24", "hum": "35%"}} %}
+          {{ data.data.hum[:-1] | int }}
+        unit_of_measurement: "%"
+```
+
+### Extract from JSON Array
+```yaml
+template:
+  - sensor:
+      - name: "First Prime"
+        state: >
+          {% set data = {"primes": [2, 3, 5, 7, 11, 13]} %}
+          {{ data.primes[0] }}
+```
+
+## State Change History Templates
+
+### Time Since Last Change
+```yaml
+template:
+  - sensor:
+      - name: "Door Last Opened"
+        state: >
+          {% set last = states.binary_sensor.front_door.last_changed %}
+          {% set diff = now() - last %}
+          {% set hours = (diff.total_seconds() / 3600) | int %}
+          {% set minutes = ((diff.total_seconds() % 3600) / 60) | int %}
+          {% if hours > 0 %}
+            {{ hours }}h {{ minutes }}m ago
+          {% else %}
+            {{ minutes }}m ago
+          {% endif %}
+```
+
+### Track State Duration Today
+```yaml
+template:
+  - trigger:
+      - trigger: state
+        entity_id: binary_sensor.motion
+    sensor:
+      - name: "Motion Active Today"
+        state: >
+          {% set current = this.state | float(0) %}
+          {% if trigger.to_state.state == 'on' %}
+            {{ current }}
+          {% else %}
+            {% set duration = (as_timestamp(trigger.to_state.last_changed) -
+                               as_timestamp(trigger.from_state.last_changed)) / 60 %}
+            {{ (current + duration) | round(1) }}
+          {% endif %}
+        unit_of_measurement: "min"
+```
+
+## Area and Device Templates
+
+### Devices in Area
+```yaml
+template:
+  - sensor:
+      - name: "Living Room Devices"
+        state: >
+          {{ area_entities('living_room') | count }}
+        attributes:
+          entities: "{{ area_entities('living_room') | list }}"
+          lights: >
+            {{ area_entities('living_room')
+               | select('match', 'light.')
+               | list }}
+```
+
+### Device Battery Levels
+```yaml
+template:
+  - sensor:
+      - name: "Low Battery Devices"
+        state: >
+          {% set low = states.sensor
+             | selectattr('attributes.device_class', 'eq', 'battery')
+             | selectattr('state', 'is_number')
+             | selectattr('state', 'lt', '20')
+             | list %}
+          {{ low | count }}
+        attributes:
+          devices: >
+            {% set low = states.sensor
+               | selectattr('attributes.device_class', 'eq', 'battery')
+               | selectattr('state', 'is_number')
+               | selectattr('state', 'lt', '20')
+               | list %}
+            {% for sensor in low %}
+            - {{ sensor.name }}: {{ sensor.state }}%
+            {% endfor %}
+```
+
+## Time and Date Advanced Templates
+
+### Next Occurrence
+```yaml
+template:
+  - sensor:
+      - name: "Next Trash Day"
+        state: >
+          {% set today = now().date() %}
+          {% set weekday = 2 %}  {# Wednesday = 2 #}
+          {% set days_ahead = weekday - today.weekday() %}
+          {% if days_ahead <= 0 %}
+            {% set days_ahead = days_ahead + 7 %}
+          {% endif %}
+          {% set next_date = today + timedelta(days=days_ahead) %}
+          {{ next_date.strftime('%A, %B %d') }}
+        attributes:
+          days_until: >
+            {% set today = now().date() %}
+            {% set weekday = 2 %}
+            {% set days_ahead = weekday - today.weekday() %}
+            {% if days_ahead <= 0 %}
+              {% set days_ahead = days_ahead + 7 %}
+            {% endif %}
+            {{ days_ahead }}
+```
+
+### Relative Time Display
+```yaml
+template:
+  - sensor:
+      - name: "Uptime"
+        state: >
+          {% set uptime = as_timestamp(now()) - as_timestamp(states('sensor.ha_uptime')) %}
+          {% set days = (uptime / 86400) | int %}
+          {% set hours = ((uptime % 86400) / 3600) | int %}
+          {% set minutes = ((uptime % 3600) / 60) | int %}
+          {{ days }}d {{ hours }}h {{ minutes }}m
+```

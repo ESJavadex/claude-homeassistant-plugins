@@ -209,3 +209,154 @@ bedtime_routine:
         entity_id: climate.thermostat
       data:
         temperature: 19
+
+# Get and announce calendar events (2024+ response_variable feature)
+daily_briefing:
+  alias: "Daily Briefing"
+  description: "Announce today's calendar events"
+  icon: mdi:calendar-today
+  sequence:
+    - action: calendar.get_events
+      target:
+        entity_id: calendar.work
+      data:
+        duration:
+          hours: 24
+      response_variable: events
+    - action: tts.speak
+      target:
+        entity_id: tts.google_en
+      data:
+        media_player_entity_id: media_player.speaker
+        message: >
+          {% set items = events['calendar.work'].events %}
+          {% if items | count > 0 %}
+            You have {{ items | count }} events today.
+            {% for event in items[:3] %}
+              {{ event.summary }} at {{ event.start | as_timestamp | timestamp_custom('%H:%M') }}.
+            {% endfor %}
+          {% else %}
+            No events scheduled for today.
+          {% endif %}
+
+# Script with if-then-else (2024+ feature)
+smart_light_control:
+  alias: "Smart Light Control"
+  description: "Control lights based on conditions"
+  icon: mdi:lightbulb-auto
+  fields:
+    target_light:
+      description: "Light to control"
+      selector:
+        entity:
+          domain: light
+    mode:
+      description: "Control mode"
+      default: "auto"
+      selector:
+        select:
+          options:
+            - auto
+            - manual_on
+            - manual_off
+  sequence:
+    - if:
+        - condition: template
+          value_template: "{{ mode == 'manual_on' }}"
+      then:
+        - action: light.turn_on
+          target:
+            entity_id: "{{ target_light }}"
+          data:
+            brightness_pct: 100
+      else:
+        - if:
+            - condition: template
+              value_template: "{{ mode == 'manual_off' }}"
+          then:
+            - action: light.turn_off
+              target:
+                entity_id: "{{ target_light }}"
+          else:
+            # Auto mode - based on sun
+            - if:
+                - condition: sun
+                  after: sunset
+                  before: sunrise
+              then:
+                - action: light.turn_on
+                  target:
+                    entity_id: "{{ target_light }}"
+                  data:
+                    brightness_pct: 70
+                    color_temp_kelvin: 2700
+              else:
+                - action: light.turn_off
+                  target:
+                    entity_id: "{{ target_light }}"
+
+# Script with stop and error handling (2024+ feature)
+safe_vacuum_start:
+  alias: "Safe Vacuum Start"
+  description: "Start vacuum only if conditions are safe"
+  icon: mdi:robot-vacuum
+  sequence:
+    - if:
+        - condition: state
+          entity_id: vacuum.robot
+          state: "unavailable"
+      then:
+        - stop: "Vacuum is unavailable"
+          error: true
+    - if:
+        - condition: state
+          entity_id: binary_sensor.home_occupied
+          state: "off"
+      then:
+        - stop: "Cannot start vacuum when no one is home for safety"
+          error: true
+    - action: vacuum.start
+      target:
+        entity_id: vacuum.robot
+      continue_on_error: true
+    - if:
+        - condition: state
+          entity_id: vacuum.robot
+          state: "cleaning"
+      then:
+        - action: notify.mobile_app_phone
+          data:
+            message: "Vacuum started cleaning"
+      else:
+        - action: notify.mobile_app_phone
+          data:
+            message: "Failed to start vacuum"
+
+# Weather-based actions with response variable
+weather_report:
+  alias: "Weather Report"
+  description: "Get weather forecast and take actions"
+  icon: mdi:weather-cloudy
+  sequence:
+    - action: weather.get_forecasts
+      target:
+        entity_id: weather.home
+      data:
+        type: hourly
+      response_variable: forecast
+    - variables:
+        next_hour: "{{ forecast['weather.home'].forecast[0] }}"
+        will_rain: "{{ next_hour.condition in ['rainy', 'pouring', 'lightning-rainy'] }}"
+    - if:
+        - condition: template
+          value_template: "{{ will_rain }}"
+      then:
+        - parallel:
+            - action: notify.mobile_app_phone
+              data:
+                title: "Weather Alert"
+                message: "Rain expected in the next hour. {{ next_hour.precipitation }}mm precipitation forecasted."
+            - action: cover.close_cover
+              target:
+                entity_id: cover.patio_awning
+              continue_on_error: true

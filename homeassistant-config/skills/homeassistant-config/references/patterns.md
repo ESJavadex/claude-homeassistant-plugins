@@ -417,3 +417,405 @@ automation:
               50
             {% endif %}
 ```
+
+## Calendar-Based Patterns
+
+### Prepare for Meeting
+```yaml
+automation:
+  - alias: "Calendar - Meeting Prep"
+    triggers:
+      - trigger: calendar
+        entity_id: calendar.work
+        event: start
+        offset: "-00:05:00"
+    actions:
+      - action: light.turn_on
+        target:
+          entity_id: light.office
+        data:
+          brightness_pct: 100
+          color_temp_kelvin: 4000
+      - action: notify.mobile_app
+        data:
+          title: "Meeting Starting Soon"
+          message: "{{ trigger.calendar_event.summary }} in 5 minutes"
+```
+
+### Daily Schedule from Calendar
+```yaml
+automation:
+  - alias: "Calendar - Morning Briefing"
+    triggers:
+      - trigger: time
+        at: "07:30:00"
+    actions:
+      - action: calendar.get_events
+        target:
+          entity_id: calendar.work
+        data:
+          duration:
+            hours: 12
+        response_variable: agenda
+      - action: notify.mobile_app
+        data:
+          title: "Today's Schedule"
+          message: >
+            {% set events = agenda['calendar.work'].events %}
+            {% if events | count > 0 %}
+              You have {{ events | count }} events:
+              {% for event in events %}
+              - {{ event.summary }} at {{ event.start | as_timestamp | timestamp_custom('%H:%M') }}
+              {% endfor %}
+            {% else %}
+              No events scheduled today
+            {% endif %}
+```
+
+## Actionable Notification Patterns
+
+### Confirm Before Action
+```yaml
+automation:
+  - alias: "Notify - Confirm Garage Close"
+    triggers:
+      - trigger: state
+        entity_id: cover.garage
+        to: "open"
+        for:
+          minutes: 30
+    actions:
+      - variables:
+          action_close: "{{ 'CLOSE_GARAGE_' ~ context.id }}"
+          action_ignore: "{{ 'IGNORE_' ~ context.id }}"
+      - action: notify.mobile_app
+        data:
+          title: "Garage Door Open"
+          message: "The garage has been open for 30 minutes"
+          data:
+            actions:
+              - action: "{{ action_close }}"
+                title: "Close Door"
+              - action: "{{ action_ignore }}"
+                title: "Leave Open"
+      - wait_for_trigger:
+          - trigger: event
+            event_type: mobile_app_notification_action
+            event_data:
+              action: "{{ action_close }}"
+          - trigger: event
+            event_type: mobile_app_notification_action
+            event_data:
+              action: "{{ action_ignore }}"
+        timeout:
+          minutes: 10
+      - if:
+          - condition: template
+            value_template: "{{ wait.trigger and wait.trigger.event.data.action == action_close }}"
+        then:
+          - action: cover.close_cover
+            target:
+              entity_id: cover.garage
+```
+
+### Multi-Choice Actions
+```yaml
+automation:
+  - alias: "Notify - Climate Override"
+    triggers:
+      - trigger: numeric_state
+        entity_id: sensor.indoor_temperature
+        above: 28
+    actions:
+      - variables:
+          action_cool: "{{ 'AC_ON_' ~ context.id }}"
+          action_fans: "{{ 'FANS_' ~ context.id }}"
+          action_ignore: "{{ 'IGNORE_' ~ context.id }}"
+      - action: notify.mobile_app
+        data:
+          title: "Home is Hot!"
+          message: "Indoor temperature is {{ states('sensor.indoor_temperature') }}°C"
+          data:
+            actions:
+              - action: "{{ action_cool }}"
+                title: "Turn on AC"
+              - action: "{{ action_fans }}"
+                title: "Turn on Fans"
+              - action: "{{ action_ignore }}"
+                title: "Ignore"
+      - wait_for_trigger:
+          - trigger: event
+            event_type: mobile_app_notification_action
+            event_data:
+              action: "{{ action_cool }}"
+          - trigger: event
+            event_type: mobile_app_notification_action
+            event_data:
+              action: "{{ action_fans }}"
+        timeout:
+          minutes: 5
+      - choose:
+          - conditions: "{{ wait.trigger.event.data.action == action_cool }}"
+            sequence:
+              - action: climate.set_hvac_mode
+                target:
+                  entity_id: climate.main
+                data:
+                  hvac_mode: cool
+          - conditions: "{{ wait.trigger.event.data.action == action_fans }}"
+            sequence:
+              - action: fan.turn_on
+                target:
+                  entity_id:
+                    - fan.living_room
+                    - fan.bedroom
+```
+
+## Parallel Execution Patterns
+
+### Simultaneous Room Setup
+```yaml
+automation:
+  - alias: "Scene - Movie Night"
+    triggers:
+      - trigger: event
+        event_type: call_service
+        event_data:
+          domain: scene
+          service: turn_on
+          service_data:
+            entity_id: scene.movie_night
+    actions:
+      - parallel:
+          - sequence:
+              - action: light.turn_on
+                target:
+                  entity_id: light.bias_lighting
+                data:
+                  brightness_pct: 30
+                  rgb_color: [255, 147, 41]
+              - action: light.turn_off
+                target:
+                  entity_id: light.ceiling
+          - action: cover.close_cover
+            target:
+              entity_id: cover.blinds
+          - action: media_player.turn_on
+            target:
+              entity_id: media_player.projector
+          - action: climate.set_temperature
+            target:
+              entity_id: climate.living_room
+            data:
+              temperature: 22
+```
+
+### Alert Multiple People Simultaneously
+```yaml
+automation:
+  - alias: "Alert - Emergency Parallel"
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.smoke_detector
+        to: "on"
+    actions:
+      - parallel:
+          - action: notify.mobile_app_person1
+            data:
+              title: "FIRE ALERT"
+              message: "Smoke detected at home!"
+              data:
+                priority: high
+          - action: notify.mobile_app_person2
+            data:
+              title: "FIRE ALERT"
+              message: "Smoke detected at home!"
+              data:
+                priority: high
+          - action: siren.turn_on
+            target:
+              entity_id: siren.alarm
+          - sequence:
+              - action: light.turn_on
+                target:
+                  entity_id: all
+                data:
+                  flash: long
+              - delay:
+                  seconds: 2
+              - action: light.turn_on
+                target:
+                  entity_id: all
+                data:
+                  flash: long
+
+```
+
+## Multi-Trigger Patterns with IDs
+
+### Smart Button Controller
+```yaml
+automation:
+  - alias: "Button - Multi-Action"
+    mode: queued
+    triggers:
+      - trigger: event
+        event_type: zha_event
+        event_data:
+          device_id: abc123
+          command: "on"
+        id: "single_press"
+      - trigger: event
+        event_type: zha_event
+        event_data:
+          device_id: abc123
+          command: "off"
+        id: "double_press"
+      - trigger: event
+        event_type: zha_event
+        event_data:
+          device_id: abc123
+          command: "move_with_on_off"
+        id: "long_press"
+    actions:
+      - choose:
+          - conditions:
+              - condition: trigger
+                id: "single_press"
+            sequence:
+              - action: light.toggle
+                target:
+                  entity_id: light.bedroom
+          - conditions:
+              - condition: trigger
+                id: "double_press"
+            sequence:
+              - action: light.toggle
+                target:
+                  entity_id: light.bathroom
+          - conditions:
+              - condition: trigger
+                id: "long_press"
+            sequence:
+              - action: scene.turn_on
+                target:
+                  entity_id: scene.goodnight
+```
+
+### Day/Night Motion Response
+```yaml
+automation:
+  - alias: "Motion - Adaptive Response"
+    triggers:
+      - trigger: state
+        entity_id: binary_sensor.hallway_motion
+        to: "on"
+        id: "day"
+      - trigger: state
+        entity_id: binary_sensor.hallway_motion
+        to: "on"
+        id: "night"
+    conditions:
+      - condition: or
+        conditions:
+          - condition: and
+            conditions:
+              - condition: trigger
+                id: "day"
+              - condition: sun
+                after: sunrise
+                before: sunset
+          - condition: and
+            conditions:
+              - condition: trigger
+                id: "night"
+              - condition: sun
+                after: sunset
+                before: sunrise
+    actions:
+      - choose:
+          - conditions:
+              - condition: trigger
+                id: "day"
+            sequence:
+              - action: light.turn_on
+                target:
+                  entity_id: light.hallway
+                data:
+                  brightness_pct: 100
+          - conditions:
+              - condition: trigger
+                id: "night"
+            sequence:
+              - action: light.turn_on
+                target:
+                  entity_id: light.hallway
+                data:
+                  brightness_pct: 10
+                  color_temp_kelvin: 2200
+```
+
+## Device Automation Patterns
+
+### MQTT Button Press
+```yaml
+automation:
+  - alias: "MQTT - Doorbell Press"
+    triggers:
+      - trigger: mqtt
+        topic: "zigbee2mqtt/doorbell/action"
+        payload: "single"
+    actions:
+      - parallel:
+          - action: media_player.play_media
+            target:
+              entity_id: media_player.speaker
+            data:
+              media_content_id: "media-source://media_source/local/doorbell.mp3"
+              media_content_type: "audio/mpeg"
+          - action: notify.mobile_app
+            data:
+              title: "Doorbell"
+              message: "Someone is at the door"
+              data:
+                image: "/api/camera_proxy/camera.front_door"
+```
+
+### Zigbee Remote Control
+```yaml
+automation:
+  - alias: "Remote - IKEA Dimmer"
+    triggers:
+      - trigger: device
+        device_id: ikea_remote_123
+        domain: zha
+        type: remote_button_short_press
+        subtype: dim_up
+        id: "up"
+      - trigger: device
+        device_id: ikea_remote_123
+        domain: zha
+        type: remote_button_short_press
+        subtype: dim_down
+        id: "down"
+    actions:
+      - choose:
+          - conditions:
+              - condition: trigger
+                id: "up"
+            sequence:
+              - action: light.turn_on
+                target:
+                  entity_id: light.bedroom
+                data:
+                  brightness_step_pct: 20
+          - conditions:
+              - condition: trigger
+                id: "down"
+            sequence:
+              - action: light.turn_on
+                target:
+                  entity_id: light.bedroom
+                data:
+                  brightness_step_pct: -20
+```
