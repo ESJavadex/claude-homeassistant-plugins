@@ -7,6 +7,37 @@ description: Create and manage Home Assistant YAML configuration files including
 
 Create and manage Home Assistant YAML configuration files including automations, scripts, templates, blueprints, and file organization.
 
+## Slash Commands
+
+| Command | Description |
+|---------|-------------|
+| `/ha-find-duplicates [path]` | Find duplicate automations and scripts in configuration |
+
+### /ha-find-duplicates
+Scans Home Assistant configuration files to find:
+- **Exact duplicates**: Automations/scripts with identical triggers and actions
+- **Similar items**: Items with 80%+ similarity (name, entities, structure)
+- **Trigger conflicts**: Multiple automations responding to the same trigger
+
+Usage: `/ha-find-duplicates /path/to/config` or `/ha-find-duplicates` for current directory.
+
+## Subagents
+
+| Agent | Description |
+|-------|-------------|
+| `ha-suggestions` | Smart home improvement advisor for automations, scenes, and device recommendations |
+
+### ha-suggestions
+A proactive smart home consultant that analyzes your Home Assistant configuration and provides personalized suggestions for:
+
+- **New Automations**: Motion lighting, presence detection, time-based routines, energy saving
+- **New Scenes**: Movie night, morning energy, dinner time, work from home, party mode
+- **Script Improvements**: Reusable sequences and parameterized routines
+- **Device Recommendations**: Sensors, switches, and integrations to enhance your setup
+- **Optimization**: Consolidation, trigger efficiency, mode usage, blueprint conversion
+
+The agent automatically discovers your configuration files, inventories entities by domain (lights, sensors, climate, etc.), and generates prioritized suggestions with complete, ready-to-use YAML code.
+
 ## Validation Scripts
 
 This skill includes scripts to validate and analyze Home Assistant configurations.
@@ -37,6 +68,19 @@ Features:
 - Validates actions (tap_action, hold_action)
 - Detects custom cards (HACS)
 - Supports both YAML and JSON storage formats
+
+### Duplicate Finder
+Finds duplicate and similar automations/scripts across configuration files:
+```bash
+python3 {baseDir}/scripts/find_duplicates.py /path/to/config/directory
+python3 {baseDir}/scripts/find_duplicates.py /path/to/automations.yaml --verbose
+```
+Features:
+- Exact duplicate detection (identical triggers + actions)
+- Similar item detection (80% threshold for names, entities, structure)
+- Trigger conflict detection (multiple automations on same trigger)
+- Entity overlap analysis between automations
+- JSON output with detailed findings
 
 ## Pre-Save Validation Hook
 

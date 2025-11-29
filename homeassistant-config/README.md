@@ -2,7 +2,7 @@
 
 > Claude Code plugin for creating, validating, and managing Home Assistant configuration files.
 
-[![Version](https://img.shields.io/badge/version-1.4.0-blue.svg)](https://github.com/ESJavadex/claude-homeassistant-plugins)
+[![Version](https://img.shields.io/badge/version-1.5.0-blue.svg)](https://github.com/ESJavadex/claude-homeassistant-plugins)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](../LICENSE)
 
 ## Features
@@ -10,7 +10,9 @@
 | Feature | Description |
 |---------|-------------|
 | **Auto-Validation** | Pre-save hook validates YAML syntax before writing |
-| **Validation Scripts** | CLI tools for YAML, config structure, and Lovelace dashboards |
+| **Validation Scripts** | CLI tools for YAML, config structure, Lovelace, and duplicate detection |
+| **Slash Commands** | `/ha-find-duplicates` for finding duplicate automations/scripts |
+| **Subagents** | `ha-suggestions` smart home improvement advisor |
 | **2024+ Syntax** | Uses modern HA syntax (`action:` not `service:`, `triggers:` not `trigger:`) |
 | **Comprehensive References** | Patterns, templates, blueprints, Lovelace, troubleshooting guides |
 | **Working Examples** | Complete automation, script, dashboard, and template examples |
@@ -34,6 +36,7 @@
 | `validate_yaml.py` | `python3 {baseDir}/scripts/validate_yaml.py config.yaml [--strict]` |
 | `check_config.py` | `python3 {baseDir}/scripts/check_config.py /config [--verbose]` |
 | `lovelace_validator.py` | `python3 {baseDir}/scripts/lovelace_validator.py dashboard.yaml` |
+| `find_duplicates.py` | `python3 {baseDir}/scripts/find_duplicates.py /config [--verbose]` |
 
 **validate_yaml.py** - YAML Validator
 - Syntax error detection with line numbers
@@ -55,6 +58,32 @@
 - Recognizes 25+ HACS custom cards (Mushroom, button-card, etc.)
 - Checks entity ID formats
 - Validates actions (`tap_action`, `hold_action`)
+
+**find_duplicates.py** - Duplicate Finder
+- Finds exact duplicate automations and scripts
+- Detects similar items (80%+ similarity threshold)
+- Identifies trigger conflicts (same trigger, different automations)
+- Reports entity overlap between automations
+
+### Slash Commands
+
+| Command | Description |
+|---------|-------------|
+| `/ha-find-duplicates [path]` | Find duplicate automations and scripts |
+
+### Subagents
+
+| Agent | Description |
+|-------|-------------|
+| `ha-suggestions` | Smart home improvement advisor |
+
+**ha-suggestions** - Proactive smart home consultant that:
+- Analyzes your HA configuration files automatically
+- Suggests new automations (motion, presence, schedules, energy)
+- Recommends scenes (movie night, morning, bedtime)
+- Proposes device purchases to enhance your setup
+- Identifies optimization opportunities in existing automations
+- Generates ready-to-use YAML code
 
 ### Pre-Save Hook
 
@@ -91,7 +120,11 @@ Automatically validates YAML files before `Write` or `Edit` operations:
 ```
 homeassistant-config/
 ├── .claude-plugin/
-│   └── plugin.json              # Plugin metadata + hooks config
+│   └── plugin.json              # Plugin metadata + hooks + agents config
+├── agents/
+│   └── ha-suggestions.md        # Smart home improvement advisor subagent
+├── commands/
+│   └── ha-find-duplicates.md    # Find duplicate automations/scripts
 ├── hooks/
 │   └── validate-before-save.sh  # Pre-save YAML validation
 ├── skills/
@@ -100,7 +133,8 @@ homeassistant-config/
 │       ├── scripts/
 │       │   ├── validate_yaml.py
 │       │   ├── check_config.py
-│       │   └── lovelace_validator.py
+│       │   ├── lovelace_validator.py
+│       │   └── find_duplicates.py
 │       ├── references/
 │       │   ├── patterns.md
 │       │   ├── templates.md
@@ -144,6 +178,12 @@ Once installed, Claude automatically activates this skill when you work with Hom
 - PyYAML (`pip install pyyaml`)
 
 ## Changelog
+
+### v1.5.0
+- Added `/ha-find-duplicates` slash command
+- Added `find_duplicates.py` script for detecting duplicate automations/scripts
+- Added `ha-suggestions` subagent for smart home improvement recommendations
+- Detects exact duplicates, similar items, and trigger conflicts
 
 ### v1.4.0
 - Added pre-save YAML validation hook
