@@ -25,6 +25,27 @@ python3 {baseDir}/scripts/check_config.py /path/to/config/directory
 python3 {baseDir}/scripts/check_config.py /path/to/config.yaml --verbose
 ```
 
+### Lovelace Validator
+Validates Lovelace dashboard configurations (YAML and JSON .storage format):
+```bash
+python3 {baseDir}/scripts/lovelace_validator.py /path/to/ui-lovelace.yaml
+python3 {baseDir}/scripts/lovelace_validator.py /path/to/.storage/lovelace --strict
+```
+Features:
+- Validates card types (built-in and custom)
+- Checks entity ID formats
+- Validates actions (tap_action, hold_action)
+- Detects custom cards (HACS)
+- Supports both YAML and JSON storage formats
+
+## Pre-Save Validation Hook
+
+This plugin includes a pre-save hook that automatically validates YAML files before saving. It checks for:
+- Tab characters (HA requires spaces)
+- Basic YAML syntax errors
+
+The hook runs automatically on Write/Edit operations for `.yaml` and `.yml` files.
+
 ## YAML Requirements
 
 - **Indentation**: 2 spaces per level (never tabs)
