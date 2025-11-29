@@ -1,7 +1,7 @@
 {
   "name": "homeassistant-config",
   "description": "Create, modify, and troubleshoot Home Assistant configuration files and Lovelace dashboards",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "author": {
     "name": "claude-homeassistant-plugins"
   }
