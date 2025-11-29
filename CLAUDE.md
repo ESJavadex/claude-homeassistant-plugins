@@ -6,6 +6,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is a Claude Code Plugin Marketplace containing plugins for Home Assistant, ESPHome, and smart home automation. Currently includes the `homeassistant-config` plugin for managing Home Assistant YAML configuration files.
 
+## What are Plugins and Skills?
+
+### Plugins
+Plugins are a lightweight way to extend Claude Code with custom functionality. A plugin can include any combination of:
+- **Slash commands**: Custom shortcuts (e.g., `/ha-validate`)
+- **Subagents**: Purpose-built agents for specialized tasks
+- **MCP servers**: Connect to external tools via Model Context Protocol
+- **Hooks**: Customize behavior at key points in Claude's workflow
+- **Skills**: Automatic capabilities activated based on context
+
+### Skills (Agent Skills)
+Skills are defined in `SKILL.md` files and teach Claude **when** and **how** to use the plugin automatically. Unlike slash commands which require explicit invocation, skills are activated based on conversation context.
+
+A `SKILL.md` file contains:
+- **Triggers**: When Claude should activate this skill (file patterns, keywords, task types)
+- **Instructions**: Domain-specific knowledge and best practices
+- **References**: Links to detailed guides in `references/` directory
+- **Examples**: Working configurations in `examples/` directory
+
+Example: When a user opens a `configuration.yaml` file, Claude automatically activates the Home Assistant skill and applies HA-specific knowledge.
+
 ## Repository Structure
 
 ```
