@@ -2,7 +2,7 @@
 
 > Claude Code plugin for creating, validating, and managing Home Assistant configuration files.
 
-[![Version](https://img.shields.io/badge/version-1.5.0-blue.svg)](https://github.com/ESJavadex/claude-homeassistant-plugins)
+[![Version](https://img.shields.io/badge/version-1.6.0-blue.svg)](https://github.com/ESJavadex/claude-homeassistant-plugins)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](../LICENSE)
 
 ## Features
@@ -27,16 +27,33 @@
 /plugin install homeassistant-config@claude-homeassistant-plugins
 ```
 
+## First-Time Setup (Bootstrap)
+
+When you first use a validation command like `/ha-find-duplicates`, Claude will automatically set up the plugin environment. This one-time bootstrap:
+
+1. **Creates a resolver script** at `.claude/ha-plugin-root.sh` in your project
+2. **Discovers the plugin location** by checking Claude's plugin registry
+3. **Enables validation scripts** to run from the correct path
+
+**Why is this needed?** Due to a [Claude Code limitation](https://github.com/anthropics/claude-code/issues/9354), plugin paths aren't automatically available to commands. The bootstrap creates a small script that discovers where the plugin is installed.
+
+**What you'll see:**
+- Claude will explain each step before running it
+- You'll be asked to approve creating the `.claude/` directory and resolver script
+- The resolver only reads Claude's plugin registry—it doesn't modify anything
+
 ## What's Included
 
 ### Validation Scripts
 
-| Script | Usage |
-|--------|-------|
-| `validate_yaml.py` | `python3 {baseDir}/scripts/validate_yaml.py config.yaml [--strict]` |
-| `check_config.py` | `python3 {baseDir}/scripts/check_config.py /config [--verbose]` |
-| `lovelace_validator.py` | `python3 {baseDir}/scripts/lovelace_validator.py dashboard.yaml` |
-| `find_duplicates.py` | `python3 {baseDir}/scripts/find_duplicates.py /config [--verbose]` |
+These scripts are run via the bootstrap resolver. Claude handles this automatically.
+
+| Script | Purpose |
+|--------|---------|
+| `validate_yaml.py` | YAML syntax + HA-specific validation |
+| `check_config.py` | Configuration structure analysis |
+| `lovelace_validator.py` | Dashboard validation |
+| `find_duplicates.py` | Duplicate automation/script detection |
 
 **validate_yaml.py** - YAML Validator
 - Syntax error detection with line numbers
@@ -128,28 +145,30 @@ homeassistant-config/
 ├── hooks/
 │   └── validate-before-save.sh  # Pre-save YAML validation
 ├── skills/
-│   └── homeassistant-config/
-│       ├── SKILL.md             # Core skill instructions
-│       ├── scripts/
-│       │   ├── validate_yaml.py
-│       │   ├── check_config.py
-│       │   ├── lovelace_validator.py
-│       │   └── find_duplicates.py
-│       ├── references/
-│       │   ├── patterns.md
-│       │   ├── templates.md
-│       │   ├── blueprints.md
-│       │   ├── lovelace.md
-│       │   ├── troubleshooting.md
-│       │   └── best-practices.md
-│       └── examples/
-│           ├── configuration.yaml
-│           ├── automations.yaml
-│           ├── scripts.yaml
-│           ├── templates.yaml
-│           ├── secrets.yaml
-│           ├── lovelace-dashboard.yaml
-│           └── lovelace-custom-cards.yaml
+│   ├── homeassistant-config/
+│   │   ├── SKILL.md             # Core skill instructions
+│   │   ├── scripts/
+│   │   │   ├── validate_yaml.py
+│   │   │   ├── check_config.py
+│   │   │   ├── lovelace_validator.py
+│   │   │   └── find_duplicates.py
+│   │   ├── references/
+│   │   │   ├── patterns.md
+│   │   │   ├── templates.md
+│   │   │   ├── blueprints.md
+│   │   │   ├── lovelace.md
+│   │   │   ├── troubleshooting.md
+│   │   │   └── best-practices.md
+│   │   └── examples/
+│   │       ├── configuration.yaml
+│   │       ├── automations.yaml
+│   │       ├── scripts.yaml
+│   │       ├── templates.yaml
+│   │       ├── secrets.yaml
+│   │       ├── lovelace-dashboard.yaml
+│   │       └── lovelace-custom-cards.yaml
+│   └── plugin-bootstrap/
+│       └── SKILL.md             # Bootstrap skill for script path resolution
 └── README.md
 ```
 
@@ -176,8 +195,33 @@ Once installed, Claude automatically activates this skill when you work with Hom
 
 - Python 3.8+ (for validation scripts)
 - PyYAML (`pip install pyyaml`)
+- jq (for bootstrap resolver - `brew install jq` on macOS)
+
+## Troubleshooting
+
+### Bootstrap Issues
+
+If the plugin resolver fails to find the plugin:
+
+1. **jq not installed**: Install with `brew install jq` (macOS) or `apt-get install jq` (Linux)
+2. **Plugin not installed**: Run `/plugin install homeassistant-config@claude-homeassistant-plugins`
+3. **Container environment**: The resolver checks multiple paths (`$HOME/.claude/`, `/data/home/.claude/`, `/root/.claude/`)
+
+### Manual Bootstrap
+
+If automatic bootstrap fails, you can find the plugin path manually:
+
+```bash
+cat ~/.claude/plugins/installed_plugins.json | jq '.plugins | to_entries[] | select(.key | contains("homeassistant")) | .value[0].installPath'
+```
 
 ## Changelog
+
+### v1.6.0
+- Added plugin bootstrap resolver for cross-environment script path discovery
+- Works around Claude Code limitation (anthropics/claude-code#9354)
+- Supports Docker/container environments with non-standard `$HOME` paths
+- Improved user feedback with descriptive messages during bootstrap
 
 ### v1.5.0
 - Added `/ha-find-duplicates` slash command

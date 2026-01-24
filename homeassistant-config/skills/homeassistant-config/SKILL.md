@@ -42,25 +42,44 @@ The agent automatically discovers your configuration files, inventories entities
 
 This skill includes scripts to validate and analyze Home Assistant configurations.
 
+### Bootstrap Required
+
+Before using validation scripts, ensure the plugin resolver is set up. Check and create if needed:
+
+```bash
+# Check if resolver exists
+test -f .claude/ha-plugin-root.sh && echo "Ready" || echo "Need to create resolver"
+```
+
+If the resolver doesn't exist, create it by invoking the `plugin-bootstrap` skill or running `/ha-find-duplicates` which will prompt for setup.
+
+Once bootstrapped, get the plugin root with:
+```bash
+PLUGIN_ROOT="$(.claude/ha-plugin-root.sh)"
+```
+
 ### YAML Validator
 Validates YAML syntax and checks for common HA issues (tabs, unquoted booleans, deprecated syntax):
 ```bash
-python3 {baseDir}/scripts/validate_yaml.py /path/to/config.yaml
-python3 {baseDir}/scripts/validate_yaml.py /path/to/config.yaml --strict
+PLUGIN_ROOT="$(.claude/ha-plugin-root.sh)"
+python3 "$PLUGIN_ROOT/skills/homeassistant-config/scripts/validate_yaml.py" /path/to/config.yaml
+python3 "$PLUGIN_ROOT/skills/homeassistant-config/scripts/validate_yaml.py" /path/to/config.yaml --strict
 ```
 
 ### Configuration Checker
 Analyzes HA configuration structure, finds entities, tracks includes and secrets:
 ```bash
-python3 {baseDir}/scripts/check_config.py /path/to/config/directory
-python3 {baseDir}/scripts/check_config.py /path/to/config.yaml --verbose
+PLUGIN_ROOT="$(.claude/ha-plugin-root.sh)"
+python3 "$PLUGIN_ROOT/skills/homeassistant-config/scripts/check_config.py" /path/to/config/directory
+python3 "$PLUGIN_ROOT/skills/homeassistant-config/scripts/check_config.py" /path/to/config.yaml --verbose
 ```
 
 ### Lovelace Validator
 Validates Lovelace dashboard configurations (YAML and JSON .storage format):
 ```bash
-python3 {baseDir}/scripts/lovelace_validator.py /path/to/ui-lovelace.yaml
-python3 {baseDir}/scripts/lovelace_validator.py /path/to/.storage/lovelace --strict
+PLUGIN_ROOT="$(.claude/ha-plugin-root.sh)"
+python3 "$PLUGIN_ROOT/skills/homeassistant-config/scripts/lovelace_validator.py" /path/to/ui-lovelace.yaml
+python3 "$PLUGIN_ROOT/skills/homeassistant-config/scripts/lovelace_validator.py" /path/to/.storage/lovelace --strict
 ```
 Features:
 - Validates card types (built-in and custom)
@@ -72,8 +91,9 @@ Features:
 ### Duplicate Finder
 Finds duplicate and similar automations/scripts across configuration files:
 ```bash
-python3 {baseDir}/scripts/find_duplicates.py /path/to/config/directory
-python3 {baseDir}/scripts/find_duplicates.py /path/to/automations.yaml --verbose
+PLUGIN_ROOT="$(.claude/ha-plugin-root.sh)"
+python3 "$PLUGIN_ROOT/skills/homeassistant-config/scripts/find_duplicates.py" /path/to/config/directory
+python3 "$PLUGIN_ROOT/skills/homeassistant-config/scripts/find_duplicates.py" /path/to/automations.yaml --verbose
 ```
 Features:
 - Exact duplicate detection (identical triggers + actions)
