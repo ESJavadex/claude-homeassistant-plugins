@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.1.1 (2026-11-03)
+
+- The PyYAML fallback now works with a real venv. A venv's `python3` is a
+  symlink to the system Python, and 2.1.0 skipped it as "the same
+  interpreter", although outside the venv it sees PyYAML. Found by testing on
+  a real install; the test now builds a venv.
+
 ## 2.1.0 (2026-11-03)
 
 From the first round of feedback on real installs (thanks @nsleigh and
