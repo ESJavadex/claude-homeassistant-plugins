@@ -379,3 +379,24 @@ def secrets_files_for(path: Path, root: Optional[Path]) -> List[Path]:
             break
         p = p.parent
     return out
+
+
+# Keys whose values are credentials. A YAML error quotes the offending line
+# (ESPHome nodes keep Wi-Fi and API passwords in plain text), and that output
+# ends up in the Claude session, so their values are masked.
+SECRET_KEY = re.compile(
+    r"""(?ix)
+    ^(?P<key>\s*(?:-\s+)?["']?(?:key|[\w.-]*(?:password|passwd|pwd|passphrase|secret|token|api_?key|apikey
+        |access_key|private_key|encryption_key|psk|credentials?|auth)[\w.-]*)["']?\s*[:=]\s*)
+    (?P<value>(?!!secret\b|!env_var\b)\S.*?)\s*$""",
+    re.M,
+)
+URL_CREDENTIALS = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://[^\s:/@]+:)[^\s@/]+@")
+
+
+def redact(text: str) -> str:
+    """Mask credential values in text that quotes YAML (error messages, snippets)."""
+    if not text:
+        return text
+    text = SECRET_KEY.sub(lambda m: m.group("key") + "***", text)
+    return URL_CREDENTIALS.sub(r"\1***@", text)

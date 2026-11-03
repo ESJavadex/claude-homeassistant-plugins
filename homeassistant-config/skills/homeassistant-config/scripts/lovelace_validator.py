@@ -30,7 +30,7 @@ from typing import Any, Dict, List, Optional, Set
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from ha_yaml import HATag, LineDict, ensure_yaml, line_of, load_text, require_yaml  # noqa: E402
+from ha_yaml import HATag, LineDict, ensure_yaml, line_of, load_text, redact, require_yaml  # noqa: E402
 
 try:
     import yaml
@@ -219,7 +219,7 @@ class LovelaceValidator:
             except yaml.YAMLError as exc:
                 mark = getattr(exc, "problem_mark", None)
                 line = mark.line + 1 if mark else None
-                self.add("error", None, "", f"YAML syntax error: {exc}", line=line)
+                self.add("error", None, "", f"YAML syntax error: {redact(str(exc))}", line=line)
                 return self._result(path, "yaml")
             for key, line in duplicates:
                 self.add("warning", None, key,

@@ -35,8 +35,10 @@ Then report briefly:
   say which release it is).
 - **Not loaded**: how many files were skipped because nothing includes them
   (archive or draft folders); offer `--include-unloaded` if they want those too.
+- **Imported blueprints**: one line with how many there are and their old-style
+  count (`imported_blueprints`). They are updated by re-importing, not by editing.
 - Anything `ha core check` said that the scripts did not. If it disagrees
   with the scripts, Home Assistant is right.
 
-Never print values from `secrets.yaml`. Do not change files in this command;
+Never print values from `secrets.yaml`, or passwords and keys you see in other files (ESPHome nodes keep them in plain text). Do not change files in this command;
 offer to fix the errors and wait for the user.

@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.1.3 (2026-11-03)
+
+From testers' feedback on 2.1.2 (issue #75 of claude-code-ha).
+
+- **Credentials never reach the output.** A YAML error quotes the line it
+  failed on, and ESPHome nodes keep Wi-Fi and API passwords in plain text.
+  Values of keys like `password`, `api_key`, `token`, `psk` or `key`, and
+  passwords in URLs (`mqtt://user:pass@host`), are now masked in every
+  checker's output and in what the hook sends back to Claude. `!secret` and
+  `!env_var` references are kept.
+- **Backups don't end up in git.** If the config folder is a git repository,
+  git is the backup: the skills check for uncommitted changes and make no
+  `.bak` files, which a nightly `git add .` would commit. Otherwise copies go
+  to `/config/.claude-backups/<date>/`, which the checkers skip.
+- **Edit YAML with the Edit tool, never through a script.** A rewrite through
+  `yaml.safe_load` + `yaml.dump` drops comments and `!include` tags, and one
+  that fails halfway leaves the file empty.
+- **Imported blueprints are counted, not listed.** Blueprints with a
+  `source_url` are updated by re-importing them, so their old-style (info)
+  items now show as a count per blueprint under `imported_blueprints` in the
+  summary. Errors and warnings in them are still listed. `/ha-upgrade` leaves
+  them alone unless asked and still upgrades your own blueprints.
+
 ## 2.1.2 (2026-11-03)
 
 False positives found by running the checkers over ten large public configs

@@ -54,6 +54,7 @@ from ha_yaml import (  # noqa: E402
     load_text,
     loaded_files,
     parse_version,
+    redact,
     require_yaml,
 )
 
@@ -174,7 +175,7 @@ class HAYamlValidator:
         try:
             data, duplicates = load_text(content)
         except Exception as exc:
-            msg = str(exc)
+            msg = redact(str(exc))
             m = re.search(r"line (\d+)", msg)
             return self._result(path, None, syntax_error=msg, line=int(m.group(1)) if m else None)
 
@@ -243,6 +244,9 @@ class HAYamlValidator:
         result["valid"] = valid
         if isinstance(data, dict):
             result["keys"] = [str(k) for k in data.keys()]
+            bp = data.get("blueprint")
+            if isinstance(bp, dict) and isinstance(bp.get("source_url"), str):
+                result["source_url"] = bp["source_url"]
         result["dashboard"] = is_dashboard_data(data)
         return result
 
@@ -570,6 +574,19 @@ def main(argv: List[str]) -> int:
             "note": "Not loaded by configuration.yaml (no !include reaches them), so skipped. "
                     "Use --include-unloaded to check them too.",
         }
+    # Imported blueprints are updated by re-importing them, not by editing:
+    # their old-style items are counted per blueprint instead of listed.
+    imported = [r for r in results if r.get("source_url")]
+    if imported:
+        summary["imported_blueprints"] = {
+            "count": len(imported),
+            "info": {r["file"]: len(r.get("info") or []) for r in imported if r.get("info")},
+            "note": "Imported from a source_url: leave them alone, or re-import a newer version "
+                    "(Settings > Blueprints > Re-import). Errors and warnings in them are still listed.",
+        }
+        for r in imported:
+            r["info"] = []
+        summary["info"] = sum(len(r.get("info") or []) for r in results)
     if rules_note(version):
         summary["note"] = rules_note(version)
     shown = [r for r in results if not quiet or r.get("errors") or r.get("warnings") or r.get("info")
@@ -579,6 +596,7 @@ def main(argv: List[str]) -> int:
         r.pop("keys", None)
         r.pop("ha_version", None)
         r.pop("note", None)
+        r.pop("source_url", None)
     print(json.dumps({"summary": summary, "results": shown}, indent=2, ensure_ascii=False))
     return 0 if summary["valid"] else 1
 
