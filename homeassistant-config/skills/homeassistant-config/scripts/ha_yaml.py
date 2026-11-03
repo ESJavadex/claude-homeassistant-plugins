@@ -154,10 +154,12 @@ def ensure_yaml() -> None:
     """
     if yaml is not None or os.environ.get("HA_PLUGIN_REEXEC"):
         return
-    current = os.path.realpath(sys.executable or "")
+    # Do not skip a candidate because it is the same binary: a venv's python3
+    # is a symlink to /usr/bin/python3, which sees PyYAML once run outside it.
+    # HA_PLUGIN_REEXEC stops any loop.
     candidates = [os.environ.get("HA_PLUGIN_PYTHON", "")] + list(PYTHON_FALLBACKS)
     for cand in candidates:
-        if not cand or not os.path.isfile(cand) or os.path.realpath(cand) == current:
+        if not cand or not os.path.isfile(cand) or os.path.abspath(cand) == os.path.abspath(sys.executable or ""):
             continue
         try:
             ok = subprocess.run([cand, "-c", "import yaml"], capture_output=True, timeout=10).returncode == 0

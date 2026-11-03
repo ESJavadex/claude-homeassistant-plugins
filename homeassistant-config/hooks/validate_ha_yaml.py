@@ -107,7 +107,7 @@ def main() -> int:
             pass
 
     if broken:
-        lines = [f"{path} is not valid YAML, so Home Assistant cannot load it:"]
+        lines = [f"{path} is broken (Home Assistant cannot load it, or drops part of it):"]
         lines += [f"  - {e}" for e in broken[:MAX_MESSAGES]]
         lines.append("Fix the file before continuing.")
         # PostToolUse cannot undo the write; `decision: block` feeds the reason

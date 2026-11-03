@@ -101,17 +101,22 @@ class HookTests(unittest.TestCase):
         ctx = json.loads(out.stdout)["hookSpecificOutput"]["additionalContext"]
         self.assertIn("was skipped", ctx)
 
-    def test_missing_pyyaml_falls_back_to_a_python_that_has_it(self):
-        # HA_PLUGIN_PYTHON stands in for /usr/bin/python3 with py3-yaml.
-        wrapper = self.root / "system-python"
-        wrapper.write_text(f"#!/bin/sh\nexec '{sys.executable}' \"$@\"\n")
-        wrapper.chmod(0o755)
+    def test_venv_without_pyyaml_falls_back_to_its_base_python(self):
+        # The real case: a venv without --system-site-packages ahead in PATH.
+        # Its python is a symlink to the base interpreter, which has PyYAML.
+        venv = self.root / "venv"
+        subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(venv)], check=True)
+        vpy = venv / "bin" / "python3"
+        probe = subprocess.run([str(vpy), "-c", "import yaml"], capture_output=True)
+        if probe.returncode == 0:
+            self.skipTest("this venv sees PyYAML")
         self.write("scripts.yaml", "a: [1, 2\n")
-        env = dict(os.environ, CLAUDE_PLUGIN_ROOT=str(PLUGIN), HA_PLUGIN_PYTHON=str(wrapper))
+        env = dict(os.environ, CLAUDE_PLUGIN_ROOT=str(PLUGIN), HA_PLUGIN_PYTHON=sys.executable)
         env.pop("HA_PLUGIN_REEXEC", None)
-        out = subprocess.run([sys.executable, "-S", str(HOOK)], input=json.dumps(self.event("scripts.yaml")),
+        out = subprocess.run([str(vpy), str(HOOK)], input=json.dumps(self.event("scripts.yaml")),
                              capture_output=True, text=True, env=env)
-        self.assertEqual(json.loads(out.stdout)["decision"], "block")
+        self.assertEqual(json.loads(out.stdout)["decision"], "block", out.stdout + out.stderr)
+
 
     def test_syntax_error_blocks(self):
         self.write("scripts.yaml", "a: [1, 2\n")
