@@ -1,0 +1,19 @@
+- sensor:
+    - name: Outside temperature
+      unique_id: outside_temperature
+      default_entity_id: sensor.outside_temperature
+      unit_of_measurement: "°C"
+      state: "{{ states('sensor.station_temperature') }}"
+      availability: "{{ has_value('sensor.station_temperature') }}"
+- triggers:
+    - trigger: time_pattern
+      minutes: "/5"
+  actions:
+    - action: ai_task.generate_data
+      data:
+        task_name: count birds
+        instructions: Count the birds in the image
+      response_variable: result
+  sensor:
+    - name: Birds
+      state: "{{ result.data }}"

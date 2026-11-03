@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PyYAML
+        run: pip install pyyaml
+
+      - name: Unit tests (validators, hook, config tools)
+        run: python -m unittest discover -s homeassistant-config/tests -v
+
+      - name: Examples parse with the Home Assistant loader
+        run: |
+          python - <<'PY'
+          import sys, pathlib
+          sys.path.insert(0, "homeassistant-config/skills/homeassistant-config/scripts")
+          import ha_yaml
+          bad = 0
+          for f in sorted(pathlib.Path("homeassistant-config/skills/homeassistant-config/examples").glob("*.yaml")):
+              data, dups = ha_yaml.load_file(f)
+              if dups:
+                  print(f"{f}: duplicate keys {dups}"); bad += 1
+              else:
+                  print(f"ok {f}")
+          sys.exit(bad)
+          PY
+
+      - name: Examples use current syntax (no errors or warnings)
+        run: |
+          S=homeassistant-config/skills/homeassistant-config/scripts
+          E=homeassistant-config/skills/homeassistant-config/examples
+          for f in automations scripts templates configuration; do
+            python $S/validate_yaml.py $E/$f.yaml --strict --all > /tmp/out.json || { cat /tmp/out.json; exit 1; }
+          done
+          for f in lovelace-dashboard lovelace-custom-cards; do
+            python $S/lovelace_validator.py $E/$f.yaml > /tmp/out.json || { cat /tmp/out.json; exit 1; }
+          done
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: claude plugin validate
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          claude plugin validate . 
+          claude plugin validate ./homeassistant-config --strict

@@ -1,0 +1,18 @@
+{
+  "description": "Validate Home Assistant YAML after Claude writes or edits it",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/validate_ha_yaml.py\"",
+            "timeout": 30,
+            "statusMessage": "Checking Home Assistant YAML"
+          }
+        ]
+      }
+    ]
+  }
+}

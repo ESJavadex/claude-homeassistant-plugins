@@ -1,0 +1,59 @@
+# Every block here is outdated. Used by the tests; do not modernise.
+homeassistant:
+  name: Old
+http:
+  server_port: 8123
+lovelace:
+  mode: yaml
+sensor:
+  - platform: template
+    sensors:
+      outside:
+        value_template: "{{ states('sensor.x') }}"
+template:
+  - sensor:
+      - name: Mixed
+        value_template: "{{ 1 }}"
+mqtt:
+  sensor:
+    - name: Temp
+      state_topic: home/temp
+      object_id: temp
+automation:
+  - alias: Old style
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.door
+        to: on
+      - trigger: battery.low
+        platform: state
+      - trigger: zone.entered
+        target:
+          entity_id: person.ana
+        options:
+          behavior: any
+      - trigger: sun.set
+        options:
+          offset: "-00:30:00"
+    triggers: []
+    condition:
+      - condition: state
+        entity_id: light.x
+        attribute: brightness
+        state: "255"
+        for: "00:01:00"
+      - condition: climate.target_temperature
+    action:
+      - service: light.turn_on
+        entity_id: light.Bad_Id
+        data:
+          color_temp: 300
+          kelvin: 2700
+      - service: notify.x
+        action: notify.y
+      - service: mqtt.publish
+        data_template:
+          topic_template: "a/{{ 1 }}"
+      - action: hassio.addon_restart
+        data:
+          addon: core_ssh

@@ -1,0 +1,23 @@
+good_night:
+  alias: Good night
+  description: Turn everything off and lock up
+  fields:
+    delay:
+      name: Delay
+      default: 5
+      selector:
+        number:
+          min: 0
+          max: 60
+          unit_of_measurement: s
+  sequence:
+    - action: light.turn_off
+      target:
+        floor_id: ground_floor
+        exclude:
+          label_id: night_light
+    - delay:
+        seconds: "{{ delay }}"
+    - action: lock.lock
+      target:
+        entity_id: lock.front_door

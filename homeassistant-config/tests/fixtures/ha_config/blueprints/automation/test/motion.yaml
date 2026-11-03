@@ -1,0 +1,35 @@
+blueprint:
+  name: Motion light
+  domain: automation
+  input:
+    motion:
+      name: Motion sensor
+      selector:
+        entity:
+          filter:
+            - domain: binary_sensor
+              device_class: motion
+    advanced:
+      name: Advanced
+      collapsed: true
+      input:
+        delay:
+          name: Delay
+          default: 120
+          selector:
+            number:
+              min: 0
+              max: 600
+    lights:
+      name: Lights
+      selector:
+        target:
+          entity:
+            - domain: light
+triggers:
+  - trigger: state
+    entity_id: !input motion
+    to: "on"
+actions:
+  - action: light.turn_on
+    target: !input lights

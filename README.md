@@ -1,116 +1,72 @@
 # Claude Home Assistant Plugins
 
-> A curated marketplace of Claude Code plugins for Home Assistant and smart home automation.
+Claude Code plugins for Home Assistant. They teach Claude the syntax Home
+Assistant uses **today** (2026), check what it writes, and help migrate old
+configs.
 
-[![Marketplace](https://img.shields.io/badge/marketplace-claude--homeassistant--plugins-blue.svg)](https://github.com/ESJavadex/claude-homeassistant-plugins)
+[![CI](https://github.com/ESJavadex/claude-homeassistant-plugins/actions/workflows/ci.yml/badge.svg)](https://github.com/ESJavadex/claude-homeassistant-plugins/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-## Available Plugins
+## Plugins
 
-| Plugin | Description | Version | Features |
-|--------|-------------|---------|----------|
-| [homeassistant-config](./homeassistant-config) | Create, validate, and manage HA configuration files | 1.4.0 | Skills, Scripts, Hooks |
+| Plugin | What it does | Version |
+|--------|--------------|---------|
+| [homeassistant-config](./homeassistant-config) | Write, check and modernise HA YAML: automations, scripts, templates, blueprints, dashboards | 2.0.0 |
 
-## Quick Start
-
-```bash
-# 1. Add this marketplace
-/plugin marketplace add ESJavadex/claude-homeassistant-plugins
-
-# 2. Install a plugin
-/plugin install homeassistant-config@claude-homeassistant-plugins
-```
-
-## What You Get
-
-### homeassistant-config
-
-| Component | What it does |
-|-----------|--------------|
-| **Skill** | Auto-activates when working with HA files |
-| **Pre-save Hook** | Validates YAML before saving |
-| **validate_yaml.py** | Check syntax, tabs, booleans, deprecated keys |
-| **check_config.py** | Analyze config structure, entities, secrets |
-| **lovelace_validator.py** | Validate dashboards (YAML & JSON) |
-| **References** | Patterns, templates, blueprints, Lovelace, troubleshooting |
-| **Examples** | Complete working configurations |
-
-**Ask Claude:**
-- "Create an automation for motion-activated lights"
-- "Validate my configuration.yaml"
-- "Build a Lovelace dashboard with Mushroom cards"
-- "Why isn't my automation firing?"
-
-## Installation Options
-
-### Option 1: Interactive (Recommended)
+## Install
 
 ```bash
 /plugin marketplace add ESJavadex/claude-homeassistant-plugins
-/plugin  # Browse and install
-```
-
-### Option 2: Direct Install
-
-```bash
 /plugin install homeassistant-config@claude-homeassistant-plugins
 ```
 
-### Managing Plugins
+Already installed? Update with `/plugin marketplace update claude-homeassistant-plugins`.
 
-| Command | Action |
-|---------|--------|
-| `/plugin` | Browse/manage plugins |
-| `/plugin enable <name>@<marketplace>` | Enable plugin |
-| `/plugin disable <name>@<marketplace>` | Disable plugin |
-| `/plugin uninstall <name>@<marketplace>` | Remove plugin |
+Running Claude Code inside Home Assistant? The
+[Claude Terminal Pro add-on](https://github.com/ESJavadex/claude-code-ha) can
+ship this plugin preinstalled.
 
-## Repository Structure
+## Why
 
+Most Home Assistant YAML on the internet is out of date, and so is a lot of
+what language models learned. Since 2024 Home Assistant has:
+
+- renamed `service:` to `action:` and `platform:` to `trigger:` (2024.8, 2024.10);
+- **removed** legacy `platform: template` entities (2026.6) and light
+  `color_temp`/`kelvin` (2026.3);
+- added purpose-specific triggers like `light.turned_on`, renamed several of
+  them (2026.5–2026.7) and changed `offset` on sun/calendar triggers (2026.11);
+- made sections the default dashboard view, replaced `layout_options` with
+  `grid_options` and `call-service` with `perform-action`;
+- moved `http:` and many integrations from YAML to the UI.
+
+The plugin knows all of that, writes for the version you run, and checks every
+YAML file Claude edits.
+
+## What you get
+
+| Component | Purpose |
+|-----------|---------|
+| `homeassistant-config` skill | Loads automatically for HA work: current syntax, version gates, snippets, references |
+| `/ha-check` | Check a config folder end to end (syntax, removed/deprecated syntax, dashboards, includes, secrets, `ha core check`) |
+| `/ha-upgrade` | Plan and apply a migration to current syntax, with backups |
+| `/ha-find-duplicates` | Duplicate, near-duplicate and conflicting automations/scripts |
+| `ha-suggestions` agent | Suggests automations, scenes and devices from what you have |
+| PostToolUse hook | Validates every YAML file right after Claude writes or edits it |
+| Python checkers | `validate_yaml.py`, `lovelace_validator.py`, `check_config.py`, `find_duplicates.py` (they understand `!include`, `!secret`, `!input`) |
+
+## Development
+
+```bash
+pip install pyyaml
+python3 -m unittest discover -s homeassistant-config/tests
+claude plugin validate ./homeassistant-config --strict
+claude --plugin-dir ./homeassistant-config     # try it without installing
 ```
-claude-homeassistant-plugins/
-├── .claude-plugin/
-│   └── marketplace.json        # Marketplace metadata
-├── homeassistant-config/       # Home Assistant plugin
-│   ├── .claude-plugin/
-│   │   └── plugin.json         # Plugin config + hooks
-│   ├── hooks/                  # Pre/post hooks
-│   ├── skills/                 # SKILL.md + scripts
-│   └── README.md
-└── README.md
-```
 
-## Contributing
-
-1. Fork this repository
-2. Create plugin directory with `.claude-plugin/plugin.json`
-3. Add `skills/<plugin-name>/SKILL.md` with YAML frontmatter
-4. Include references and examples
-5. Submit PR
-
-### Plugin Requirements
-
-- `plugin.json` with name, description, version
-- `SKILL.md` with YAML frontmatter (`name`, `description`)
-- Working examples
-- Documentation
-
-## Roadmap
-
-- [ ] ESPHome configuration plugin
-- [ ] MQTT device templates
-- [ ] Node-RED integration patterns
-- [ ] Voice assistant (Assist) configurations
+Pull requests are welcome. Please keep examples on current syntax: CI runs the
+validators on every example with `--strict`.
 
 ## License
 
-MIT License - See [LICENSE](LICENSE)
-
-## Resources
-
-| Resource | Link |
-|----------|------|
-| Claude Code Plugins | [code.claude.com/docs/en/plugins](https://code.claude.com/docs/en/plugins) |
-| Plugin Marketplaces | [code.claude.com/docs/en/plugin-marketplaces](https://code.claude.com/docs/en/plugin-marketplaces) |
-| Home Assistant | [home-assistant.io](https://www.home-assistant.io/) |
-| HACS | [hacs.xyz](https://hacs.xyz/) |
+MIT, see [LICENSE](LICENSE).

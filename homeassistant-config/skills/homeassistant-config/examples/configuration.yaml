@@ -1,72 +1,70 @@
-# Home Assistant Configuration Example
-# Basic configuration.yaml structure
+# configuration.yaml - minimal modern layout (2026)
+#
+# Most integrations are set up in the UI (Settings → Devices & services) and
+# stored in .storage/, not here. Name, location, units, time zone and currency
+# are set in Settings → System → General: putting them under homeassistant:
+# locks those UI fields.
+#
+# Not here on purpose:
+# - http: is imported into the UI since 2026.8; change it in
+#   Settings → System → Network. YAML edits are ignored after the import.
+# - legacy "sensor: - platform: template" (removed 2026.6); use templates.yaml.
+# - tts:/notify: platforms that moved to the UI.
+
+# Frontend, mobile app, energy, history, logbook, sun, zones, backups, ...
+default_config:
 
 homeassistant:
-  name: Home
-  unit_system: metric
-  temperature_unit: C
-  time_zone: Europe/Madrid
-  latitude: !secret latitude
-  longitude: !secret longitude
-  elevation: 0
-  currency: EUR
+  # One file per feature in packages/ (kitchen.yaml, energy.yaml, ...).
+  # Each file may contain any top-level integration keys.
+  packages: !include_dir_named packages
 
-# Frontend
+# Automations: the UI editor writes to automations.yaml; hand-written ones
+# can live in automations/ (each file is a list). The labels after the
+# domain name ("ui", "manual") are free text.
+automation ui: !include automations.yaml
+automation manual: !include_dir_merge_list automations/
+
+script: !include scripts.yaml
+scene: !include scenes.yaml
+
+# Modern template entities (a list of blocks).
+template: !include templates.yaml
+
+# Themes (one file per theme, merged into one mapping).
 frontend:
   themes: !include_dir_merge_named themes/
 
-# Enable configuration UI
-config:
-
-# Enable mobile app
-mobile_app:
-
-# Enable automations UI
-automation: !include automations.yaml
-
-# Enable scripts UI
-script: !include scripts.yaml
-
-# Enable scenes UI
-scene: !include scenes.yaml
-
-# Template sensors
-template: !include templates.yaml
-
-# Logger settings
-logger:
-  default: info
-  logs:
-    homeassistant.components.automation: warning
-    homeassistant.components.template: warning
-
-# Recorder - database settings
+# Database: keep it small by excluding entities you never chart.
 recorder:
   purge_keep_days: 10
-  commit_interval: 30
+  commit_interval: 5
+  # db_url: !secret recorder_db_url     # only for an external database
   exclude:
-    domains:
-      - automation
-      - updater
-      - script
+    entity_globs:
+      - sensor.*_linkquality
+      - sensor.*_uptime
+      - sensor.*_last_seen
+    entities:
+      - sensor.date_time
 
-# History
-history:
-  exclude:
-    domains:
-      - automation
-      - script
+# Log levels. On HA OS read them with "ha core logs" or
+# Settings → System → Logs (no home-assistant.log file since 2025.11).
+logger:
+  default: warning
+  logs:
+    homeassistant.components.automation: info
+    homeassistant.components.template: info
+    homeassistant.components.mqtt: warning
 
-# Logbook
-logbook:
-  exclude:
-    domains:
-      - automation
+# Helpers can be created in the UI too; YAML is fine when you want them in git.
+input_boolean:
+  guest_mode:
+    name: "Guest mode"
+    icon: mdi:account-multiple
 
-# Sun component
-sun:
-
-# Text to Speech
-tts:
-  - platform: google_translate
-    language: "en"
+input_datetime:
+  wake_up:
+    name: "Wake-up time"
+    has_date: false
+    has_time: true

@@ -16,46 +16,37 @@ from typing import Dict, List, Set, Tuple, Optional
 from difflib import SequenceMatcher
 from collections import defaultdict
 
-try:
-    import yaml
-except ImportError:
-    print(json.dumps({
-        "error": "PyYAML not installed. Run: pip install pyyaml"
-    }))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from ha_yaml import iter_yaml_files, load_text, require_yaml  # noqa: E402
+
+if require_yaml():
+    print(json.dumps({"error": require_yaml()}))
     sys.exit(1)
 
 
-# Custom YAML loader to handle Home Assistant tags
-class HAYamlLoader(yaml.SafeLoader):
-    """YAML loader that handles Home Assistant custom tags."""
-    pass
+def canonical(obj):
+    """Rewrite old keys to current ones so old and new syntax compare equal.
 
-
-def _ha_tag_constructor(loader, tag_suffix, node):
-    """Handle HA custom tags by returning their value as a string."""
-    if isinstance(node, yaml.ScalarNode):
-        return f"!{tag_suffix} {loader.construct_scalar(node)}"
-    elif isinstance(node, yaml.SequenceNode):
-        return loader.construct_sequence(node)
-    elif isinstance(node, yaml.MappingNode):
-        return loader.construct_mapping(node)
-    return None
-
-
-# Register handlers for common HA tags
-for tag in ['include', 'include_dir_list', 'include_dir_named',
-            'include_dir_merge_list', 'include_dir_merge_named',
-            'secret', 'input', 'env_var']:
-    HAYamlLoader.add_constructor(
-        f'!{tag}',
-        lambda loader, node, t=tag: _ha_tag_constructor(loader, t, node)
-    )
-
-# Handle any unknown tags gracefully
-HAYamlLoader.add_multi_constructor(
-    '',
-    lambda loader, tag, node: _ha_tag_constructor(loader, tag.lstrip('!'), node)
-)
+    platform -> trigger (trigger items), service -> action (steps),
+    data_template -> data, trigger/condition/action lists -> plural keys.
+    """
+    if isinstance(obj, list):
+        return [canonical(x) for x in obj]
+    if not isinstance(obj, dict):
+        return obj
+    out = {}
+    for key, value in obj.items():
+        new_key = key
+        if key == "platform" and "trigger" not in obj:
+            new_key = "trigger"
+        elif key == "service" and "action" not in obj and isinstance(value, str):
+            new_key = "action"
+        elif key == "data_template" and "data" not in obj:
+            new_key = "data"
+        elif key in ("trigger", "condition", "action") and isinstance(value, list) and key + "s" not in obj:
+            new_key = key + "s"
+        out[new_key] = canonical(value)
+    return out
 
 
 class DuplicateFinder:
@@ -86,7 +77,7 @@ class DuplicateFinder:
 
     def _scan_directory(self, directory: Path) -> None:
         """Scan all YAML files in a directory."""
-        yaml_files = list(directory.glob("**/*.yaml")) + list(directory.glob("**/*.yml"))
+        yaml_files = list(iter_yaml_files(directory))
 
         for yaml_file in yaml_files:
             # Skip hidden directories and common non-config files
@@ -100,17 +91,11 @@ class DuplicateFinder:
 
         try:
             content = file_path.read_text(encoding='utf-8')
-            data = yaml.load(content, Loader=HAYamlLoader)
-        except yaml.YAMLError as e:
-            self.errors.append({
-                "file": str(file_path),
-                "error": f"YAML parse error: {e}"
-            })
-            return
+            data, _ = load_text(content)
         except Exception as e:
             self.errors.append({
                 "file": str(file_path),
-                "error": str(e)
+                "error": f"YAML parse error: {e}"
             })
             return
 
@@ -124,6 +109,11 @@ class DuplicateFinder:
                 self._extract_automations(data["automation"], file_path)
             if "script" in data:
                 self._extract_scripts(data["script"], file_path)
+            # scripts.yaml: {script_id: {sequence: [...]}}
+            if "script" not in data and data and all(
+                isinstance(v, dict) and "sequence" in v for v in data.values()
+            ):
+                self._extract_scripts(data, file_path)
         elif isinstance(data, list):
             # File is a list of automations (e.g., automations.yaml)
             if file_path.stem in ("automations", "automation"):
@@ -204,28 +194,28 @@ class DuplicateFinder:
         triggers = automation.get("triggers") or automation.get("trigger") or []
         if isinstance(triggers, dict):
             triggers = [triggers]
-        return self._sort_dict_list(triggers)
+        return self._sort_dict_list(canonical(triggers))
 
     def _normalize_conditions(self, automation: dict) -> List[dict]:
         """Normalize conditions for comparison."""
         conditions = automation.get("conditions") or automation.get("condition") or []
         if isinstance(conditions, dict):
             conditions = [conditions]
-        return self._sort_dict_list(conditions)
+        return self._sort_dict_list(canonical(conditions))
 
     def _normalize_actions(self, automation: dict) -> List[dict]:
         """Normalize actions for comparison."""
         actions = automation.get("actions") or automation.get("action") or []
         if isinstance(actions, dict):
             actions = [actions]
-        return actions  # Preserve order for actions
+        return canonical(actions)  # Preserve order for actions
 
     def _normalize_sequence(self, script: dict) -> List[dict]:
         """Normalize script sequence for comparison."""
         sequence = script.get("sequence") or []
         if isinstance(sequence, dict):
             sequence = [sequence]
-        return sequence
+        return canonical(sequence)
 
     def _sort_dict_list(self, items: List) -> List:
         """Sort a list of dicts for consistent comparison."""
@@ -236,35 +226,39 @@ class DuplicateFinder:
         except TypeError:
             return items
 
-    def _extract_entity_ids(self, config: dict) -> Set[str]:
-        """Extract all entity IDs from a configuration."""
-        entities = set()
+    ENTITY_KEYS = ("entity_id", "entity", "entities")
 
-        def extract_from_value(value):
+    def _extract_entity_ids(self, config: dict) -> Set[str]:
+        """Entity IDs referenced by a config (entity_id/entity/entities keys only).
+
+        Action names such as light.turn_on or notify.mobile_app_x are NOT entities
+        and are ignored, otherwise every automation that notifies the same phone
+        looks "similar".
+        """
+        entities: Set[str] = set()
+
+        def add(value):
             if isinstance(value, str):
-                # Match entity_id patterns
-                if re.match(r'^[a-z_]+\.[a-z0-9_]+$', value):
+                if re.match(r'^[a-z0-9_]+\.[a-z0-9_]+$', value):
                     entities.add(value)
             elif isinstance(value, list):
+                for v in value:
+                    add(v)
+            elif isinstance(value, dict) and "entity" in value:
+                add(value["entity"])
+
+        def walk(value):
+            if isinstance(value, list):
                 for item in value:
-                    extract_from_value(item)
+                    walk(item)
             elif isinstance(value, dict):
                 for k, v in value.items():
-                    if k in ("entity_id", "entity", "target", "service"):
-                        if isinstance(v, str):
-                            entities.add(v)
-                        elif isinstance(v, list):
-                            entities.update(v)
-                        elif isinstance(v, dict) and "entity_id" in v:
-                            eid = v["entity_id"]
-                            if isinstance(eid, str):
-                                entities.add(eid)
-                            elif isinstance(eid, list):
-                                entities.update(eid)
+                    if k in self.ENTITY_KEYS:
+                        add(v)
                     else:
-                        extract_from_value(v)
+                        walk(v)
 
-        extract_from_value(config)
+        walk(config)
         return entities
 
     def _compute_hash(self, item: dict) -> str:
@@ -377,76 +371,76 @@ class DuplicateFinder:
         return duplicates
 
     def _find_similar_items(self, items: List[dict], item_type: str) -> List[dict]:
-        """Find items with similar names or overlapping entities."""
-        similar_groups = []
-        checked_pairs = set()
+        """Group items that look alike. Pairs are merged into clusters, so ten
+        near-identical scripts give one group of ten, not 45 pairs."""
+        n = len(items)
+        parent = list(range(n))
+        best: Dict[int, float] = {}
 
-        for i, item1 in enumerate(items):
-            for j, item2 in enumerate(items):
-                if i >= j:
-                    continue
+        def find(x):
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
 
-                pair_key = (item1["hash"], item2["hash"])
-                if pair_key in checked_pairs:
-                    continue
-                checked_pairs.add(pair_key)
+        for i in range(n):
+            for j in range(i + 1, n):
+                if items[i]["hash"] == items[j]["hash"]:
+                    continue  # exact duplicates are reported separately
+                score = self._calculate_similarity(items[i], items[j])
+                if score >= self.SIMILARITY_THRESHOLD:
+                    ri, rj = find(i), find(j)
+                    if ri != rj:
+                        parent[rj] = ri
+                    root = find(i)
+                    best[root] = max(best.get(root, 0), best.pop(rj, 0) if rj != root else 0, score)
 
-                # Skip if they're exact duplicates (already reported)
-                if item1["hash"] == item2["hash"]:
-                    continue
+        clusters: Dict[int, List[int]] = {}
+        for i in range(n):
+            clusters.setdefault(find(i), []).append(i)
 
-                similarity = self._calculate_similarity(item1, item2)
-                if similarity >= self.SIMILARITY_THRESHOLD:
-                    similar_groups.append({
-                        "type": item_type,
-                        "similarity": f"{similarity:.0%}",
-                        "reason": self._get_similarity_reason(item1, item2),
-                        "items": [
-                            {
-                                "alias": item1["alias"],
-                                "file": item1["file"],
-                                "id": item1.get("id") or item1.get("script_id")
-                            },
-                            {
-                                "alias": item2["alias"],
-                                "file": item2["file"],
-                                "id": item2.get("id") or item2.get("script_id")
-                            }
-                        ]
-                    })
-
-        return similar_groups
+        groups = []
+        for root, members in clusters.items():
+            if len(members) < 2:
+                continue
+            first, second = items[members[0]], items[members[1]]
+            groups.append({
+                "type": item_type,
+                "size": len(members),
+                "similarity": f"{best.get(root, self.SIMILARITY_THRESHOLD):.0%}",
+                "reason": self._get_similarity_reason(first, second),
+                "items": [
+                    {
+                        "alias": items[m]["alias"],
+                        "file": items[m]["file"],
+                        "id": items[m].get("id") or items[m].get("script_id"),
+                    }
+                    for m in members
+                ],
+            })
+        groups.sort(key=lambda g: -g["size"])
+        return groups
 
     def _calculate_similarity(self, item1: dict, item2: dict) -> float:
-        """Calculate similarity between two items."""
-        scores = []
+        """Weighted similarity in [0, 1]: name 0.25, entities 0.35, logic 0.4."""
+        parts = []
+        parts.append((SequenceMatcher(None, item1["alias"].lower(), item2["alias"].lower()).ratio(), 0.25))
 
-        # Name similarity
-        name_sim = SequenceMatcher(
-            None,
-            item1["alias"].lower(),
-            item2["alias"].lower()
-        ).ratio()
-        scores.append(name_sim * 0.3)  # 30% weight
-
-        # Entity overlap
         entities1 = item1.get("entities", set())
         entities2 = item2.get("entities", set())
-        if entities1 and entities2:
+        if entities1 or entities2:
             overlap = len(entities1 & entities2) / max(len(entities1 | entities2), 1)
-            scores.append(overlap * 0.4)  # 40% weight
+            parts.append((overlap, 0.35))
 
-        # Trigger similarity (for automations)
         if "triggers" in item1 and "triggers" in item2:
-            trigger_sim = self._compare_structures(item1["triggers"], item2["triggers"])
-            scores.append(trigger_sim * 0.3)  # 30% weight
+            logic = (self._compare_structures(item1["triggers"], item2["triggers"])
+                     + self._compare_structures(item1.get("actions", []), item2.get("actions", []))) / 2
+            parts.append((logic, 0.4))
+        elif "sequence" in item1 and "sequence" in item2:
+            parts.append((self._compare_structures(item1["sequence"], item2["sequence"]), 0.4))
 
-        # Sequence similarity (for scripts)
-        if "sequence" in item1 and "sequence" in item2:
-            seq_sim = self._compare_structures(item1["sequence"], item2["sequence"])
-            scores.append(seq_sim * 0.3)
-
-        return sum(scores) / max(len(scores) * 0.3, 0.3)  # Normalize
+        total_weight = sum(w for _, w in parts)
+        return sum(s * w for s, w in parts) / total_weight if total_weight else 0.0
 
     def _compare_structures(self, struct1, struct2) -> float:
         """Compare two structures for similarity."""

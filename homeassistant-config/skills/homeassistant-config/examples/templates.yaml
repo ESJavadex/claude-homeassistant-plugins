@@ -1,203 +1,178 @@
-# Home Assistant Template Sensors Example
-# Template sensor definitions
+# templates.yaml - modern template entities (2026)
+#
+# Loaded from configuration.yaml with:  template: !include templates.yaml
+# This file is a LIST of blocks. Each block holds entities of one or more
+# platforms (sensor, binary_sensor, switch, ...), optionally with triggers.
+#
+# The legacy "sensor: - platform: template" format was removed in 2026.6.
+# Keys: state (not value_template), name (not friendly_name), icon,
+# availability, attributes. unique_id on every entity.
 
-# Power and energy sensors
+# ---------------------------------------------------------------------------
+# State-based entities: re-render whenever a referenced entity changes
+# ---------------------------------------------------------------------------
 - sensor:
-    - name: "Total Power Usage"
-      unique_id: total_power_usage
-      unit_of_measurement: "W"
+    - name: "Power (kW)"
+      unique_id: house_power_kw
+      default_entity_id: sensor.house_power_kw   # 2025.9: initial entity ID
+      unit_of_measurement: "kW"
       device_class: power
       state_class: measurement
-      state: >
-        {{ (states('sensor.plug_1_power') | float(0) +
-            states('sensor.plug_2_power') | float(0) +
-            states('sensor.plug_3_power') | float(0)) | round(1) }}
-      availability: >
-        {{ states('sensor.plug_1_power') not in ['unknown', 'unavailable'] }}
+      state: "{{ (states('sensor.house_power') | float(0) / 1000) | round(2) }}"
+      availability: "{{ has_value('sensor.house_power') }}"
 
-    - name: "Daily Energy Cost"
-      unique_id: daily_energy_cost
-      unit_of_measurement: "EUR"
-      state_class: total_increasing
-      state: >
-        {% set kwh = states('sensor.daily_energy') | float(0) %}
-        {% set rate = 0.25 %}
-        {{ (kwh * rate) | round(2) }}
-      icon: mdi:currency-eur
-
-# Temperature sensors
-- sensor:
-    - name: "Average Indoor Temperature"
+    - name: "Average indoor temperature"
       unique_id: average_indoor_temperature
-      unit_of_measurement: "C"
+      unit_of_measurement: "°C"
       device_class: temperature
       state_class: measurement
-      state: >
-        {% set temps = [
-          states('sensor.living_room_temperature') | float(0),
-          states('sensor.bedroom_temperature') | float(0),
-          states('sensor.kitchen_temperature') | float(0)
-        ] | reject('eq', 0) | list %}
-        {{ (temps | sum / temps | count) | round(1) if temps else 'unknown' }}
+      state: >-
+        {% set temps = [states('sensor.living_room_temperature'),
+                        states('sensor.bedroom_temperature'),
+                        states('sensor.office_temperature')]
+           | reject('in', ['unknown', 'unavailable']) | map('float') | list %}
+        {{ (temps | sum / temps | count) | round(1) if temps else none }}
+      availability: >-
+        {{ has_value('sensor.living_room_temperature')
+           or has_value('sensor.bedroom_temperature')
+           or has_value('sensor.office_temperature') }}
 
-    - name: "Temperature Difference Indoor Outdoor"
-      unique_id: temp_diff_indoor_outdoor
-      unit_of_measurement: "C"
-      device_class: temperature
-      state: >
-        {% set indoor = states('sensor.average_indoor_temperature') | float(0) %}
-        {% set outdoor = states('sensor.outdoor_temperature') | float(0) %}
-        {{ (indoor - outdoor) | round(1) }}
-
-# Time-based sensors
-- sensor:
-    - name: "Time of Day"
-      unique_id: time_of_day
-      state: >
-        {% set hour = now().hour %}
-        {% if 5 <= hour < 12 %}
-          Morning
-        {% elif 12 <= hour < 17 %}
-          Afternoon
-        {% elif 17 <= hour < 21 %}
-          Evening
-        {% else %}
-          Night
-        {% endif %}
-      icon: >
-        {% set hour = now().hour %}
-        {% if 5 <= hour < 12 %}
-          mdi:weather-sunset-up
-        {% elif 12 <= hour < 17 %}
-          mdi:weather-sunny
-        {% elif 17 <= hour < 21 %}
-          mdi:weather-sunset-down
-        {% else %}
-          mdi:weather-night
-        {% endif %}
-
-    - name: "Day Type"
-      unique_id: day_type
-      state: >
-        {% set day = now().isoweekday() %}
-        {{ 'Weekend' if day in [6, 7] else 'Weekday' }}
-
-# Status and count sensors
-- sensor:
-    - name: "Lights On Count"
+    - name: "Lights on"
       unique_id: lights_on_count
-      unit_of_measurement: "lights"
-      state: >
-        {{ states.light | selectattr('state', 'eq', 'on') | list | count }}
-      icon: mdi:lightbulb-group
+      icon: "{{ 'mdi:lightbulb-group' if this.state | int(0) > 0 else 'mdi:lightbulb-group-off' }}"
+      state: "{{ states.light | selectattr('state', 'eq', 'on') | list | count }}"
+      attributes:
+        areas: >-
+          {{ states.light | selectattr('state', 'eq', 'on')
+             | map(attribute='entity_id') | map('area_name') | reject('none') | unique | join(', ') }}
 
-    - name: "Open Windows Count"
-      unique_id: open_windows_count
-      unit_of_measurement: "windows"
-      state: >
-        {{ states.binary_sensor
-           | selectattr('attributes.device_class', 'defined')
-           | selectattr('attributes.device_class', 'eq', 'window')
-           | selectattr('state', 'eq', 'on')
-           | list | count }}
-      icon: mdi:window-open
+    - name: "Low batteries"
+      unique_id: low_batteries
+      icon: mdi:battery-alert
+      state: >-
+        {{ label_entities('battery_powered')
+           | select('has_value')
+           | select('is_state_attr', 'device_class', 'battery')
+           | map('states') | map('float', 100) | select('lt', 20) | list | count }}
 
-    - name: "Active Automations"
-      unique_id: active_automations_count
-      state: >
-        {{ states.automation | selectattr('state', 'eq', 'on') | list | count }}
-      icon: mdi:robot
-
-# Device status sensors
-- sensor:
-    - name: "Thermostat Status"
-      unique_id: thermostat_status
-      state: >
-        {% set hvac = state_attr('climate.thermostat', 'hvac_action') %}
-        {% set target = state_attr('climate.thermostat', 'temperature') %}
-        {% set current = state_attr('climate.thermostat', 'current_temperature') %}
-        {{ hvac | title }} ({{ current }}C → {{ target }}C)
-      icon: >
-        {% set hvac = state_attr('climate.thermostat', 'hvac_action') %}
-        {% if hvac == 'heating' %}
-          mdi:fire
-        {% elif hvac == 'cooling' %}
-          mdi:snowflake
-        {% else %}
-          mdi:thermostat
-        {% endif %}
-
-# Binary sensors
 - binary_sensor:
-    - name: "Home Occupied"
-      unique_id: home_occupied
+    - name: "Someone home"
+      unique_id: someone_home
       device_class: occupancy
-      state: >
-        {{ states.person | selectattr('state', 'eq', 'home') | list | count > 0 }}
+      state: "{{ states('zone.home') | int(0) > 0 }}"
+      delay_off: "00:05:00"
 
-    - name: "Any Window Open"
+    - name: "Any window open"
       unique_id: any_window_open
       device_class: window
-      state: >
-        {{ states.binary_sensor
-           | selectattr('attributes.device_class', 'defined')
-           | selectattr('attributes.device_class', 'eq', 'window')
-           | selectattr('state', 'eq', 'on')
-           | list | count > 0 }}
+      state: >-
+        {{ label_entities('window_sensor') | select('is_state', 'on') | list | count > 0 }}
 
-    - name: "Workday"
-      unique_id: is_workday
-      state: >
-        {{ now().isoweekday() <= 5 }}
+    # Returning none would make the sensor "unknown" (since 2025.8), so
+    # return true/false explicitly and use availability for missing data.
+    - name: "Heating needed"
+      unique_id: heating_needed
+      state: >-
+        {{ states('sensor.average_indoor_temperature') | float(99) < 19 }}
+      availability: "{{ has_value('sensor.average_indoor_temperature') }}"
 
-    - name: "Night Mode"
-      unique_id: night_mode
-      state: >
-        {% set hour = now().hour %}
-        {{ hour >= 22 or hour < 6 }}
-      icon: mdi:moon-waning-crescent
+- switch:
+    - name: "Garden pump"
+      unique_id: garden_pump
+      state: "{{ is_state('switch.relay_3', 'on') }}"
+      turn_on:
+        - action: switch.turn_on
+          target:
+            entity_id: switch.relay_3
+      turn_off:
+        - action: switch.turn_off
+          target:
+            entity_id: switch.relay_3
 
-# Trigger-based template (for event counting)
-- trigger:
+- button:
+    - name: "Restart router"
+      unique_id: restart_router
+      icon: mdi:router-wireless
+      press:
+        - action: switch.turn_off
+          target:
+            entity_id: switch.router_plug
+        - delay: "00:00:10"
+        - action: switch.turn_on
+          target:
+            entity_id: switch.router_plug
+
+# ---------------------------------------------------------------------------
+# Trigger-based entities: update only when a trigger fires
+# ---------------------------------------------------------------------------
+
+# Forecast data via an action response (actions: in the block, 2024.10).
+- triggers:
+    - trigger: time_pattern
+      hours: "/1"
+    - trigger: homeassistant
+      event: start
+  actions:
+    - action: weather.get_forecasts
+      target:
+        entity_id: weather.home
+      data:
+        type: daily
+      response_variable: forecast
+  sensor:
+    - name: "Tomorrow max temperature"
+      unique_id: tomorrow_max_temperature
+      unit_of_measurement: "°C"
+      device_class: temperature
+      state: "{{ forecast['weather.home'].forecast[1].temperature }}"
+      attributes:
+        condition: "{{ forecast['weather.home'].forecast[1].condition }}"
+        precipitation_probability: "{{ forecast['weather.home'].forecast[1].precipitation_probability | default(none) }}"
+
+# Counter using "this" (the state before this render), reset at midnight.
+- triggers:
     - trigger: state
       entity_id: binary_sensor.front_door
+      from: "off"
       to: "on"
+      id: opened
+    - trigger: time
+      at: "00:00:00"
+      id: reset
   sensor:
-    - name: "Front Door Opens Today"
-      unique_id: front_door_opens_today
-      state: >
-        {% set current = this.state | int(0) %}
-        {% if now().hour == 0 and now().minute < 5 %}
-          1
-        {% else %}
-          {{ current + 1 }}
-        {% endif %}
-      icon: mdi:door
+    - name: "Front door openings today"
+      unique_id: front_door_openings_today
+      state_class: total_increasing
+      icon: mdi:door-open
+      state: >-
+        {{ 0 if trigger.id == 'reset' else (this.state | int(0)) + 1 }}
 
-# Sensor with attributes
-- sensor:
-    - name: "Home Status"
-      unique_id: home_status
-      state: >
-        {% if is_state('binary_sensor.home_occupied', 'on') %}
-          Occupied
-        {% elif is_state('input_boolean.vacation_mode', 'on') %}
-          Vacation
-        {% else %}
-          Away
-        {% endif %}
+# Block-level conditions (2024.10): only record CO2 while someone is home.
+- triggers:
+    - trigger: state
+      entity_id: sensor.living_room_co2
+  conditions:
+    - condition: state
+      entity_id: binary_sensor.someone_home
+      state: "on"
+  sensor:
+    - name: "CO2 while occupied"
+      unique_id: co2_while_occupied
+      unit_of_measurement: "ppm"
+      device_class: carbon_dioxide
+      state_class: measurement
+      state: "{{ trigger.to_state.state }}"
+
+# Last time the washer finished (power dropped below 5 W for 3 minutes).
+- triggers:
+    - trigger: numeric_state
+      entity_id: sensor.washer_power
+      below: 5
+      for: "00:03:00"
+  binary_sensor:
+    - name: "Washer finished"
+      unique_id: washer_finished
+      state: "true"
+      auto_off: "01:00:00"
       attributes:
-        persons_home: >
-          {{ states.person | selectattr('state', 'eq', 'home') | map(attribute='name') | list }}
-        lights_on: >
-          {{ states.light | selectattr('state', 'eq', 'on') | list | count }}
-        windows_open: >
-          {{ states.binary_sensor
-             | selectattr('attributes.device_class', 'defined')
-             | selectattr('attributes.device_class', 'eq', 'window')
-             | selectattr('state', 'eq', 'on')
-             | map(attribute='name')
-             | list }}
-        climate_status: >
-          {{ states('climate.thermostat') }}
-      icon: mdi:home
+        finished_at: "{{ now().isoformat() }}"

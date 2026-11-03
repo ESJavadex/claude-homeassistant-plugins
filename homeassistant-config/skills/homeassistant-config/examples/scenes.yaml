@@ -1,0 +1,31 @@
+# Scenes store the target state of each entity. Use color_temp_kelvin for
+# white lights (color_temp in mireds and kelvin were removed in 2026.3).
+# Scenes created in the UI land here too, with a numeric id.
+
+- id: movie_night
+  name: Movie night
+  icon: mdi:movie-open
+  entities:
+    light.living_room_ceiling:
+      state: "off"
+    light.living_room_lamp:
+      state: "on"
+      brightness: 60
+      color_temp_kelvin: 2200
+    cover.living_room_blinds:
+      state: closed
+    media_player.living_room_tv:
+      state: "on"
+
+- id: morning_bright
+  name: Morning bright
+  icon: mdi:weather-sunny
+  entities:
+    light.kitchen:
+      state: "on"
+      brightness: 255
+      color_temp_kelvin: 5000
+    light.hallway:
+      state: "on"
+      brightness: 180
+      color_temp_kelvin: 4000

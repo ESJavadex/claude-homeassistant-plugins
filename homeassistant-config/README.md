@@ -1,212 +1,98 @@
-# Home Assistant Config Plugin
+# homeassistant-config
 
-> Claude Code plugin for creating, validating, and managing Home Assistant configuration files.
+Claude Code plugin to write, check and modernise Home Assistant YAML with the
+syntax of Home Assistant 2026 (rules up to 2026.11).
 
-[![Version](https://img.shields.io/badge/version-1.5.0-blue.svg)](https://github.com/ESJavadex/claude-homeassistant-plugins)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](../LICENSE)
-
-## Features
-
-| Feature | Description |
-|---------|-------------|
-| **Auto-Validation** | Pre-save hook validates YAML syntax before writing |
-| **Validation Scripts** | CLI tools for YAML, config structure, Lovelace, and duplicate detection |
-| **Slash Commands** | `/ha-find-duplicates` for finding duplicate automations/scripts |
-| **Subagents** | `ha-suggestions` smart home improvement advisor |
-| **2024+ Syntax** | Uses modern HA syntax (`action:` not `service:`, `triggers:` not `trigger:`) |
-| **Comprehensive References** | Patterns, templates, blueprints, Lovelace, troubleshooting guides |
-| **Working Examples** | Complete automation, script, dashboard, and template examples |
-
-## Installation
+## Install
 
 ```bash
-# Add marketplace
 /plugin marketplace add ESJavadex/claude-homeassistant-plugins
-
-# Install plugin
 /plugin install homeassistant-config@claude-homeassistant-plugins
 ```
 
-## What's Included
+Requirements: `python3` with PyYAML (`pip install pyyaml`, or `apk add py3-yaml`
+on Alpine / Home Assistant add-ons). Without PyYAML the hook stays silent and the
+scripts tell you what to install.
 
-### Validation Scripts
+## Components
 
-| Script | Usage |
-|--------|-------|
-| `validate_yaml.py` | `python3 {baseDir}/scripts/validate_yaml.py config.yaml [--strict]` |
-| `check_config.py` | `python3 {baseDir}/scripts/check_config.py /config [--verbose]` |
-| `lovelace_validator.py` | `python3 {baseDir}/scripts/lovelace_validator.py dashboard.yaml` |
-| `find_duplicates.py` | `python3 {baseDir}/scripts/find_duplicates.py /config [--verbose]` |
+### Skill: `homeassistant-config`
 
-**validate_yaml.py** - YAML Validator
-- Syntax error detection with line numbers
-- Tab character detection (HA requires spaces)
-- Unquoted boolean warnings (`on`, `off`, `yes`, `no`)
-- Deprecated syntax detection (`service:` → `action:`)
-- Entity ID format validation
+Loads automatically when Claude works on Home Assistant config. It covers:
 
-**check_config.py** - Configuration Analyzer
-- Scans entire config directories
-- Finds entities across all domains
-- Tracks `!include` and `!secret` references
-- Reports missing aliases/IDs in automations
-- Suggests best practices
+- the current syntax and what each release changed (2024.8 → 2026.11);
+- version gates, so Claude doesn't write 2026.11 features for a 2025 install;
+- how to find entity IDs, check the config with `ha core check` and reload
+  without a restart from the Claude Terminal add-on;
+- references for automation patterns, purpose-specific triggers, template
+  entities, blueprints, dashboards (sections, tile features, badges,
+  visibility, strategies), AI tasks and Assist, best practices and
+  troubleshooting;
+- complete example files.
 
-**lovelace_validator.py** - Dashboard Validator
-- Supports YAML (`ui-lovelace.yaml`) and JSON (`.storage/lovelace`)
-- Validates 30+ built-in card types
-- Recognizes 25+ HACS custom cards (Mushroom, button-card, etc.)
-- Checks entity ID formats
-- Validates actions (`tap_action`, `hold_action`)
+### Commands
 
-**find_duplicates.py** - Duplicate Finder
-- Finds exact duplicate automations and scripts
-- Detects similar items (80%+ similarity threshold)
-- Identifies trigger conflicts (same trigger, different automations)
-- Reports entity overlap between automations
+| Command | What it does |
+|---------|--------------|
+| `/ha-check [path]` | Full check: YAML with HA tags, removed/deprecated syntax, dashboards, missing includes, undefined secrets, duplicate ids, plus `ha core check` |
+| `/ha-upgrade [path]` | Finds outdated syntax, proposes a plan by risk level, backs up and migrates the files you approve |
+| `/ha-find-duplicates [path]` | Exact duplicates, near-duplicate groups (e.g. ten room scripts that could be one with `fields:`) and trigger conflicts |
 
-### Slash Commands
+### Agent: `ha-suggestions`
 
-| Command | Description |
-|---------|-------------|
-| `/ha-find-duplicates [path]` | Find duplicate automations and scripts |
+Reads your entities, areas and automations and suggests new automations,
+scenes and devices, with ready-to-use YAML. It only reports; nothing is
+written until you pick.
 
-### Subagents
+### Hook: YAML check after every edit
 
-| Agent | Description |
-|-------|-------------|
-| `ha-suggestions` | Smart home improvement advisor |
+After Claude writes or edits a `.yaml` file, `hooks/validate_ha_yaml.py`
+validates the whole file on disk:
 
-**ha-suggestions** - Proactive smart home consultant that:
-- Analyzes your HA configuration files automatically
-- Suggests new automations (motion, presence, schedules, energy)
-- Recommends scenes (movie night, morning, bedtime)
-- Proposes device purchases to enhance your setup
-- Identifies optimization opportunities in existing automations
-- Generates ready-to-use YAML code
+- **errors** (syntax, tabs, duplicate keys, removed syntax) are sent back to
+  Claude, which fixes them in the same turn;
+- **warnings** (deprecated or ignored syntax) are passed to Claude as context;
+- old-but-working syntax (`service:`, `platform:`) is not reported, so Claude
+  doesn't rewrite your files uninvited.
 
-### Pre-Save Hook
+Home Assistant rules only apply to files that look like HA config. ESPHome
+files (which use `platform: template` legitimately), CI workflows and
+docker-compose files only get the syntax check.
 
-Automatically validates YAML files before `Write` or `Edit` operations:
-- Blocks saves with tab characters
-- Blocks saves with YAML syntax errors
-- Only affects `.yaml` and `.yml` files
+### Scripts
 
-### Reference Guides
+All of them parse Home Assistant tags (`!include*`, `!secret`, `!input`,
+`!env_var`, ESPHome's `!lambda`), and print JSON.
 
-| File | Content |
-|------|---------|
-| `patterns.md` | Common automation patterns (motion lights, presence, notifications) |
-| `templates.md` | Jinja2 template sensors and examples |
-| `blueprints.md` | Blueprint creation and usage |
-| `lovelace.md` | Dashboard cards, layouts, custom cards |
-| `troubleshooting.md` | Common errors and solutions |
-| `best-practices.md` | Performance, organization, maintenance |
+| Script | Checks |
+|--------|--------|
+| `validate_yaml.py <file-or-dir> [--strict] [--quiet] [--all]` | syntax, tabs, duplicate keys, 30+ rules for removed/deprecated/old syntax, each tagged with the release |
+| `lovelace_validator.py <file> [--strict]` | dashboards in YAML or `.storage/lovelace*`: card types, tile features, actions, sections, badges, deprecated options |
+| `check_config.py <dir> [--verbose]` | domains, missing `!include` files, undefined `!secret` names (never values), duplicate automation ids |
+| `find_duplicates.py <dir> [--verbose]` | exact and near duplicates, clustered; old and new syntax compare equal |
 
-### Example Configurations
+Levels: **error** = will not work on current HA, **warning** = deprecated or
+ignored, **info** = old style that still works.
 
-| File | Description |
-|------|-------------|
-| `configuration.yaml` | Base configuration with includes |
-| `automations.yaml` | Motion, presence, climate, notification automations |
-| `scripts.yaml` | Parameterized scripts with sequences |
-| `templates.yaml` | Template sensors for energy, occupancy, etc. |
-| `secrets.yaml` | Secrets file structure |
-| `lovelace-dashboard.yaml` | Complete dashboard with multiple views |
-| `lovelace-custom-cards.yaml` | Mushroom, button-card, and other HACS cards |
+## Examples of what it catches
 
-## Directory Structure
-
-```
-homeassistant-config/
-├── .claude-plugin/
-│   └── plugin.json              # Plugin metadata + hooks + agents config
-├── agents/
-│   └── ha-suggestions.md        # Smart home improvement advisor subagent
-├── commands/
-│   └── ha-find-duplicates.md    # Find duplicate automations/scripts
-├── hooks/
-│   └── validate-before-save.sh  # Pre-save YAML validation
-├── skills/
-│   └── homeassistant-config/
-│       ├── SKILL.md             # Core skill instructions
-│       ├── scripts/
-│       │   ├── validate_yaml.py
-│       │   ├── check_config.py
-│       │   ├── lovelace_validator.py
-│       │   └── find_duplicates.py
-│       ├── references/
-│       │   ├── patterns.md
-│       │   ├── templates.md
-│       │   ├── blueprints.md
-│       │   ├── lovelace.md
-│       │   ├── troubleshooting.md
-│       │   └── best-practices.md
-│       └── examples/
-│           ├── configuration.yaml
-│           ├── automations.yaml
-│           ├── scripts.yaml
-│           ├── templates.yaml
-│           ├── secrets.yaml
-│           ├── lovelace-dashboard.yaml
-│           └── lovelace-custom-cards.yaml
-└── README.md
+```text
+error   Legacy template sensor (`platform: template` under `sensor:`) was removed [HA 2026.6]
+error   `color_temp` is no longer supported for lights; use `color_temp_kelvin` [HA 2026.3]
+error   Trigger 'battery.low' no longer exists; use 'battery.became_low' [HA 2026.7]
+error   Both 'trigger' and 'triggers' in the same block; keep only 'triggers' [HA 2024.10]
+warning `http:` is imported into the UI once; later YAML edits are ignored [HA 2026.8]
+warning Offset without `offset_type`: from 2026.11 the sign decides [HA 2026.11]
+warning Unquoted on is read as a boolean, not the string "on"
+info    `service: light.turn_on` still works, but the current key is `action:` [HA 2024.8]
 ```
 
-## Usage Examples
+## Development
 
-Once installed, Claude automatically activates this skill when you work with Home Assistant files.
-
-**Ask Claude:**
-```
-"Create an automation that turns on lights when motion is detected after sunset"
-
-"Validate my configuration.yaml for errors"
-
-"Help me create a Lovelace dashboard with Mushroom cards"
-
-"Convert this automation to a blueprint"
-
-"Why isn't my automation firing?"
-
-"Create a template sensor that calculates daily energy cost"
+```bash
+python3 -m unittest discover -s homeassistant-config/tests
+claude plugin validate ./homeassistant-config --strict
+claude --plugin-dir ./homeassistant-config
 ```
 
-## Requirements
-
-- Python 3.8+ (for validation scripts)
-- PyYAML (`pip install pyyaml`)
-
-## Changelog
-
-### v1.5.0
-- Added `/ha-find-duplicates` slash command
-- Added `find_duplicates.py` script for detecting duplicate automations/scripts
-- Added `ha-suggestions` subagent for smart home improvement recommendations
-- Detects exact duplicates, similar items, and trigger conflicts
-
-### v1.4.0
-- Added pre-save YAML validation hook
-- Added Lovelace dashboard validator
-- Supports both YAML and JSON `.storage/lovelace` format
-
-### v1.3.0
-- Added validation scripts (`validate_yaml.py`, `check_config.py`)
-- Scripts use `{baseDir}` for portability
-
-### v1.2.4
-- Added YAML frontmatter to SKILL.md for proper skill detection
-
-### v1.2.0
-- Initial release with skill, references, and examples
-
-## License
-
-MIT License - See [LICENSE](../LICENSE) for details.
-
-## Links
-
-- [Home Assistant](https://www.home-assistant.io/)
-- [HA Automation Docs](https://www.home-assistant.io/docs/automation/)
-- [Lovelace Dashboards](https://www.home-assistant.io/dashboards/)
-- [HACS](https://hacs.xyz/)
+See [CHANGELOG.md](CHANGELOG.md).

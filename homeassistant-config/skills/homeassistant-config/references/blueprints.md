@@ -1,614 +1,470 @@
-# Home Assistant Blueprints Guide
+# Blueprints (Home Assistant 2026)
 
-Blueprints are reusable automation and script templates with configurable inputs.
+Blueprints are automations, scripts or template entities with inputs. Docs:
+https://www.home-assistant.io/docs/blueprint/schema/ and selectors at
+https://www.home-assistant.io/docs/blueprint/selectors/
 
-## Blueprint Structure
+## Outdated → current
 
-### Basic Blueprint
+| Outdated | Current | Since |
+|---|---|---|
+| `trigger:` / `action:` / `service:` / `platform:` in the blueprint body | `triggers:` / `actions:` / `action:` / `- trigger:` | 2024.8 / 2024.10 |
+| Flat list of many inputs | Input sections with `collapsed:` | 2024.6 |
+| Inputs always shown | Conditional `visible:` inputs | 2026.11 |
+| `target` selector with a `device:` filter | `entity:` filter only (`integration`, `domain`, `device_class`…) | validation fails 2026.11 |
+| Only automation/script blueprints | `domain: template` blueprints | 2024.11 |
+| Hand-written trigger lists for user extras | `- triggers: !input extra_triggers` | 2024.10 |
+| `color_temp` mireds in light actions | `color_temp_kelvin` | 2026.3 |
+| Purpose-specific trigger IDs from before 2026.7 (`battery.low`…) | Renamed IDs (see `patterns.md`) | 2026.7 |
+
+## File location
+
+| Domain | Folder |
+|---|---|
+| automation | `config/blueprints/automation/<author>/<name>.yaml` |
+| script | `config/blueprints/script/<author>/<name>.yaml` |
+| template | `config/blueprints/template/<author>/<name>.yaml` |
+
+Reload after editing: Settings → Automations & scenes → Blueprints → reload,
+or restart. Blueprint WebSocket commands are admin-only since 2026.1.2.
+
+## Schema
+
 ```yaml
 blueprint:
-  name: Motion-activated Light
-  description: Turn on a light when motion is detected
-  domain: automation  # or 'script'
-  author: Your Name
-  source_url: https://github.com/your-repo/blueprint.yaml
-
+  name: "Motion light"
+  description: >-
+    Turn on lights when motion is detected and off after a delay.
+  domain: automation              # automation | script | template
+  author: "Your name"
+  source_url: "https://github.com/you/blueprints/blob/main/motion_light.yaml"
+  homeassistant:
+    min_version: "2026.11.0"      # refuse to load on older HA
   input:
-    motion_sensor:
-      name: Motion Sensor
-      description: The sensor that detects motion
+    motion_entity:
+      name: "Motion sensor"
+      description: "Binary sensor that detects motion."
       selector:
         entity:
           filter:
             - domain: binary_sensor
               device_class: motion
-
-    target_light:
-      name: Light
-      description: The light to turn on
+    light_target:
+      name: "Lights"
       selector:
         target:
           entity:
             - domain: light
-
-    wait_time:
-      name: Wait Time
-      description: Time to wait after motion stops
-      default: 120
-      selector:
-        number:
-          min: 0
-          max: 3600
-          unit_of_measurement: seconds
-
-# Automation configuration using inputs
-triggers:
-  - trigger: state
-    entity_id: !input motion_sensor
-    to: "on"
-
-actions:
-  - action: light.turn_on
-    target: !input target_light
-  - wait_for_trigger:
-      - trigger: state
-        entity_id: !input motion_sensor
-        to: "off"
-        for:
-          seconds: !input wait_time
-  - action: light.turn_off
-    target: !input target_light
 ```
 
-## Input Selectors
+Set `min_version` to the oldest release that has every feature you use
+(`visible:` → 2026.11, `exclude` in targets → 2026.11, purpose-specific
+triggers as default → 2026.7).
 
-### Entity Selector
-```yaml
-input:
-  my_light:
-    name: Light Entity
-    selector:
-      entity:
-        filter:
-          - domain: light
-          - domain: switch
-            device_class: outlet
-
-  my_sensor:
-    name: Temperature Sensor
-    selector:
-      entity:
-        filter:
-          - domain: sensor
-            device_class: temperature
-        multiple: true  # Allow selecting multiple entities
-```
-
-### Target Selector
-```yaml
-input:
-  target_lights:
-    name: Target Lights
-    selector:
-      target:
-        entity:
-          - domain: light
-        device:
-          - integration: hue
-```
-
-### Device Selector
-```yaml
-input:
-  my_device:
-    name: Device
-    selector:
-      device:
-        filter:
-          - integration: zha
-            manufacturer: IKEA
-          - integration: zwave_js
-```
-
-### Number Selector
-```yaml
-input:
-  brightness:
-    name: Brightness
-    default: 80
-    selector:
-      number:
-        min: 0
-        max: 100
-        step: 5
-        unit_of_measurement: "%"
-        mode: slider  # or 'box'
-
-  temperature:
-    name: Temperature
-    selector:
-      number:
-        min: 16
-        max: 30
-        unit_of_measurement: "°C"
-```
-
-### Time Selector
-```yaml
-input:
-  start_time:
-    name: Start Time
-    default: "07:00:00"
-    selector:
-      time:
-
-  duration:
-    name: Duration
-    default:
-      minutes: 30
-    selector:
-      duration:
-        enable_day: false
-```
-
-### Boolean Selector
-```yaml
-input:
-  enable_notifications:
-    name: Enable Notifications
-    default: true
-    selector:
-      boolean:
-```
-
-### Text Selector
-```yaml
-input:
-  custom_message:
-    name: Notification Message
-    default: "Motion detected!"
-    selector:
-      text:
-        multiline: false
-        type: text  # or 'email', 'url', 'password'
-```
-
-### Select Selector (Dropdown)
-```yaml
-input:
-  light_mode:
-    name: Light Mode
-    default: "auto"
-    selector:
-      select:
-        options:
-          - label: "Automatic"
-            value: "auto"
-          - label: "Always On"
-            value: "on"
-          - label: "Always Off"
-            value: "off"
-        mode: dropdown  # or 'list'
-```
-
-### Area Selector
-```yaml
-input:
-  target_area:
-    name: Area
-    selector:
-      area:
-        multiple: false
-```
-
-### Color Selector
-```yaml
-input:
-  light_color:
-    name: Light Color
-    selector:
-      color_rgb:
-
-  color_temp:
-    name: Color Temperature
-    selector:
-      color_temp:
-        min_mireds: 153
-        max_mireds: 500
-```
-
-### Action Selector
-```yaml
-input:
-  custom_actions:
-    name: Additional Actions
-    default: []
-    selector:
-      action:
-```
-
-### Trigger Selector
-```yaml
-input:
-  additional_triggers:
-    name: Extra Triggers
-    default: []
-    selector:
-      trigger:
-```
-
-### Constant Selector
-```yaml
-input:
-  feature_enabled:
-    name: Enable Feature
-    selector:
-      constant:
-        label: "Enabled"
-        value: true
-```
-
-## Input Sections (Grouping)
+## Input sections
 
 ```yaml
-blueprint:
-  name: Advanced Light Control
-  domain: automation
   input:
-    # Top-level inputs (always visible)
-    motion_sensor:
-      name: Motion Sensor
+    motion_entity:
+      name: "Motion sensor"
       selector:
         entity:
           filter:
             - domain: binary_sensor
               device_class: motion
-
-    # Grouped section
-    light_settings:
-      name: Light Settings
-      icon: mdi:lightbulb
-      description: Configure how the lights behave
-      collapsed: true  # Start collapsed
+    timing:
+      name: "Timing"
+      icon: mdi:timer-outline
+      description: "How long to keep the lights on."
+      collapsed: true
       input:
-        brightness:
-          name: Brightness
-          default: 100
+        no_motion_wait:
+          name: "Wait time"
+          default: 120
           selector:
             number:
               min: 0
-              max: 100
-
-        color_temp:
-          name: Color Temperature
-          default: 3000
-          selector:
-            number:
-              min: 2000
-              max: 6500
-              unit_of_measurement: "K"
-
-    notification_settings:
-      name: Notification Settings
-      icon: mdi:bell
-      collapsed: true
-      input:
-        send_notification:
-          name: Send Notification
-          default: false
-          selector:
-            boolean:
+              max: 3600
+              unit_of_measurement: seconds
 ```
 
-## Using Inputs in Templates
+- A section has `name`, `icon`, `description`, `collapsed` and `input`.
+- Every input in a `collapsed: true` section needs a `default`.
+- Inputs are referenced by name only (`!input no_motion_wait`), never by
+  section. Input names must be unique across all sections.
 
-### Expose Input as Variable
+## Conditional inputs (2026.11)
+
+An input, or a whole section, can be shown only when another input has a given
+value. Hidden fields are not required and their value is not saved, so give
+them a `default`.
+
 ```yaml
-blueprint:
-  name: Example
-  input:
-    brightness_input:
+    dim_mode:
+      name: "Brightness"
+      default: auto
+      selector:
+        select:
+          options:
+            - label: "Automatic by time of day"
+              value: auto
+            - label: "Fixed"
+              value: fixed
+    fixed_brightness:
+      name: "Fixed brightness"
+      default: 80
+      visible:
+        field: dim_mode
+        value: fixed
       selector:
         number:
-          min: 0
+          min: 1
           max: 100
+          unit_of_measurement: "%"
+```
 
-# Make input available in templates
+This is new in 2026.11; check the schema page for other forms of `visible`
+(several values, sections).
+
+## Using inputs
+
+`!input` can only replace a whole value. To use an input inside a template,
+copy it to a variable first.
+
+```yaml
 variables:
-  brightness: !input brightness_input
+  wait_seconds: !input no_motion_wait
+  brightness: !input fixed_brightness
 
 actions:
   - action: light.turn_on
-    target:
-      entity_id: light.bedroom
+    target: !input light_target
     data:
       brightness_pct: "{{ brightness }}"
+  - delay:
+      seconds: "{{ wait_seconds }}"
 ```
 
-### Conditional Logic with Inputs
-```yaml
-blueprint:
-  name: Conditional Example
-  input:
-    enable_night_mode:
-      default: true
-      selector:
-        boolean:
-
-variables:
-  night_mode: !input enable_night_mode
-
-actions:
-  - if:
-      - condition: template
-        value_template: "{{ night_mode }}"
-    then:
-      - action: light.turn_on
-        data:
-          brightness_pct: 20
-    else:
-      - action: light.turn_on
-        data:
-          brightness_pct: 100
-```
-
-## Trigger Variables
+`trigger_variables` are rendered before the triggers are attached and only
+support limited templates (no state access). Use them for things like an event
+type in a trigger:
 
 ```yaml
-blueprint:
-  name: Dynamic Event Type
-  input:
-    event_name:
-      selector:
-        text:
-
 trigger_variables:
-  event_type: !input event_name
-
+  event_kind: !input event_kind
 triggers:
   - trigger: event
-    event_type: "{{ event_type }}"
+    event_type: "{{ event_kind }}"
 ```
 
-## Merging Triggers from Input
+### Letting users add triggers or actions
 
 ```yaml
 blueprint:
-  name: Extensible Automation
+  name: "Extensible example"
+  domain: automation
   input:
-    additional_triggers:
-      name: Additional Triggers
+    motion_entity:
+      name: "Motion sensor"
+      selector:
+        entity:
+          filter:
+            - domain: binary_sensor
+    extra_triggers:
+      name: "Extra triggers"
       default: []
       selector:
         trigger:
-
-triggers:
-  - triggers: !input additional_triggers
-  - trigger: time
-    at: "07:00:00"
-```
-
-## Complete Blueprint Examples
-
-### Motion Light with Options
-```yaml
-blueprint:
-  name: Motion-activated Light with Options
-  description: >
-    Turn on a light when motion is detected.
-    Features: adjustable delay, brightness, night mode.
-  domain: automation
-
-  input:
-    motion_entity:
-      name: Motion Sensor
+    extra_actions:
+      name: "Extra actions"
+      default: []
       selector:
-        entity:
-          filter:
-            - domain: binary_sensor
-              device_class: motion
-
-    light_target:
-      name: Light
-      selector:
-        target:
-          entity:
-            - domain: light
-
-    no_motion_wait:
-      name: Wait time
-      description: Time to leave the light on after motion stops
-      default: 120
-      selector:
-        number:
-          min: 0
-          max: 3600
-          unit_of_measurement: seconds
-
-    light_settings:
-      name: Light Settings
-      icon: mdi:tune
-      collapsed: true
-      input:
-        day_brightness:
-          name: Day Brightness
-          default: 100
-          selector:
-            number:
-              min: 0
-              max: 100
-        night_brightness:
-          name: Night Brightness
-          default: 30
-          selector:
-            number:
-              min: 0
-              max: 100
-
-mode: restart
-max_exceeded: silent
-
-variables:
-  day_bright: !input day_brightness
-  night_bright: !input night_brightness
+        action:
 
 triggers:
   - trigger: state
     entity_id: !input motion_entity
     to: "on"
-
-conditions: []
+  - triggers: !input extra_triggers      # merged into this list (2024.10)
 
 actions:
-  - action: light.turn_on
-    target: !input light_target
-    data:
-      brightness_pct: >
-        {% if is_state('sun.sun', 'above_horizon') %}
-          {{ day_bright }}
-        {% else %}
-          {{ night_bright }}
-        {% endif %}
-
-  - wait_for_trigger:
-      - trigger: state
-        entity_id: !input motion_entity
-        to: "off"
-        for:
-          seconds: !input no_motion_wait
-
-  - action: light.turn_off
-    target: !input light_target
-
+  - sequence: !input extra_actions
 ```
 
-### Notification on State Change
+## Selectors
+
+| Selector | Use for | Notes |
+|---|---|---|
+| `entity` | one or more entities | `filter:` list with `domain`, `device_class`, `integration`, `supported_features`; `multiple: true` |
+| `target` | entities/devices/areas/floors/labels for `target:` | Filter with `entity:` only. A `device:` filter fails validation from 2026.11 |
+| `device` | devices | Filter by `integration`, `manufacturer`, `model`; by model ID since 2025.4 |
+| `area`, `floor`, `label` | IDs for templates | `multiple: true` returns a list |
+| `number` | numbers | `min`, `max`, `step`, `unit_of_measurement`, `mode: box\|slider` |
+| `boolean` | toggles | |
+| `text` | strings | `multiline`, `type: password`, `multiple` |
+| `select` | dropdown | `options` as strings or `label`/`value`; `multiple`, `custom_value`, `mode: dropdown\|list` |
+| `time`, `duration`, `date`, `datetime` | times | `duration` returns a dict (`hours`, `minutes`, `seconds`) |
+| `color_temp` | colour temperature | `unit: kelvin`, `min`, `max` |
+| `color_rgb`, `icon`, `media`, `location`, `template` | | |
+| `action`, `trigger`, `condition` | user-supplied steps | Merge with `- triggers: !input` / `sequence: !input` |
+| `object` | structured data | `fields` and `multiple` since 2025.7 |
+| `constant` | fixed value with a toggle | |
+| `device_class`, `state_class` | pick a class | 2026.9; check the selector page for options |
+| `unit_of_measurement` | pick a unit | 2026.10; check the selector page for options |
+
+There is also a `choose` selector (2026.1) aimed at integrations; its YAML
+keys are not confirmed here, so check the selectors page before using it.
+
+### Target selector without `device:` (2026.11)
+
+```yaml
+# Fails validation from 2026.11
+selector:
+  target:
+    device:
+      integration: hue
+    entity:
+      domain: light
+```
+
+```yaml
+# Use an entity filter
+selector:
+  target:
+    entity:
+      - integration: hue
+        domain: light
+```
+
+## Complete automation blueprint
+
 ```yaml
 blueprint:
-  name: State Change Notification
-  description: Send notification when entity changes state
+  name: "Motion light (2026)"
+  description: "Lights on with motion, off after no motion for a while."
   domain: automation
-
+  homeassistant:
+    min_version: "2026.11.0"
   input:
-    entity:
-      name: Entity
+    motion_entity:
+      name: "Motion sensor"
       selector:
         entity:
-
-    notify_device:
-      name: Device to notify
-      selector:
-        device:
           filter:
-            - integration: mobile_app
-
-    notification_settings:
-      name: Notification
+            - domain: binary_sensor
+              device_class:
+                - motion
+                - occupancy
+    light_target:
+      name: "Lights"
+      selector:
+        target:
+          entity:
+            - domain: light
+    options:
+      name: "Options"
+      icon: mdi:tune
+      collapsed: true
       input:
-        title:
-          name: Title
-          default: "State Changed"
+        no_motion_wait:
+          name: "Turn off after"
+          default: 120
           selector:
-            text:
-        message_template:
-          name: Message
-          default: "{{ trigger.to_state.name }} is now {{ trigger.to_state.state }}"
+            number:
+              min: 0
+              max: 3600
+              unit_of_measurement: seconds
+        dim_mode:
+          name: "Brightness"
+          default: auto
           selector:
-            text:
-              multiline: true
+            select:
+              options:
+                - label: "By time of day"
+                  value: auto
+                - label: "Fixed"
+                  value: fixed
+        fixed_brightness:
+          name: "Fixed brightness"
+          default: 80
+          visible:
+            field: dim_mode
+            value: fixed
+          selector:
+            number:
+              min: 1
+              max: 100
+              unit_of_measurement: "%"
+        illuminance_entity:
+          name: "Illuminance sensor (optional)"
+          default: ""
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+                  device_class: illuminance
+        illuminance_max:
+          name: "Only when below (lx)"
+          default: 50
+          selector:
+            number:
+              min: 0
+              max: 1000
+        extra_conditions:
+          name: "Extra conditions"
+          default: []
+          selector:
+            condition:
+
+mode: restart
+max_exceeded: silent
 
 variables:
-  title: !input title
-  message: !input message_template
+  dim_mode: !input dim_mode
+  fixed_brightness: !input fixed_brightness
+  wait_seconds: !input no_motion_wait
+  lux_entity: !input illuminance_entity
+  lux_max: !input illuminance_max
 
 triggers:
   - trigger: state
-    entity_id: !input entity
+    entity_id: !input motion_entity
+    from: "off"
+    to: "on"
 
 conditions:
   - condition: template
-    value_template: "{{ trigger.from_state.state != trigger.to_state.state }}"
+    value_template: >-
+      {{ lux_entity == '' or not has_value(lux_entity)
+         or states(lux_entity) | float(0) < lux_max }}
+  - condition: and
+    conditions: !input extra_conditions
 
 actions:
-  - device_id: !input notify_device
-    domain: mobile_app
-    type: notify
-    title: "{{ title }}"
-    message: "{{ message }}"
+  - action: light.turn_on
+    target: !input light_target
+    data:
+      brightness_pct: >-
+        {% if dim_mode == 'fixed' %}{{ fixed_brightness }}
+        {% elif now().hour >= 22 or now().hour < 7 %}20
+        {% else %}100{% endif %}
+  - wait_for_trigger:
+      - trigger: state
+        entity_id: !input motion_entity
+        from: "on"
+        to: "off"
+  - delay:
+      seconds: "{{ wait_seconds }}"
+  - action: light.turn_off
+    target: !input light_target
 ```
 
-### Script Blueprint with Fields
+## Script blueprint
+
+Blueprint inputs are filled in once, when the script is created. Values that
+change on every call go in script `fields` in the blueprint body.
+
 ```yaml
 blueprint:
-  name: Room Scene Script
-  description: Apply scene to a room
+  name: "Announce on speakers"
   domain: script
-
   input:
-    target_area:
-      name: Target Area
+    speakers:
+      name: "Speakers"
       selector:
-        area:
+        entity:
+          multiple: true
+          filter:
+            - domain: media_player
+    tts_entity:
+      name: "TTS engine"
+      selector:
+        entity:
+          filter:
+            - domain: tts
+
+mode: queued
 
 fields:
-  brightness:
-    name: Brightness
-    description: Light brightness level
+  message:
+    name: "Message"
     required: true
-    default: 100
     selector:
-      number:
-        min: 0
-        max: 100
+      text:
 
-  color_temp:
-    name: Color Temperature
-    default: 3500
-    selector:
-      number:
-        min: 2000
-        max: 6500
+variables:
+  speakers: !input speakers
 
 sequence:
-  - action: light.turn_on
+  - action: tts.speak
     target:
-      area_id: !input target_area
+      entity_id: !input tts_entity
     data:
-      brightness_pct: "{{ brightness }}"
-      kelvin: "{{ color_temp }}"
+      media_player_entity_id: "{{ speakers }}"
+      message: "{{ message }}"
 ```
 
-## Using Blueprints
+## Template blueprint
 
-### Import from URL
 ```yaml
-# In Home Assistant UI:
-# Settings > Automations & Scenes > Blueprints > Import Blueprint
-# Paste URL: https://github.com/user/repo/blob/main/blueprint.yaml
+# config/blueprints/template/homeassistant/inverted_binary_sensor.yaml
+blueprint:
+  name: "Invert a binary sensor"
+  domain: template
+  input:
+    reference_entity:
+      name: "Binary sensor to invert"
+      selector:
+        entity:
+          filter:
+            - domain: binary_sensor
+
+variables:
+  reference_entity: !input reference_entity
+
+binary_sensor:
+  state: >-
+    {{ not is_state(reference_entity, 'on') }}
+  availability: "{{ has_value(reference_entity) }}"
 ```
 
-### Create Automation from Blueprint
+Use it under `template:`:
+
+```yaml
+template:
+  - use_blueprint:
+      path: homeassistant/inverted_binary_sensor.yaml
+      input:
+        reference_entity: binary_sensor.front_door
+    name: "Front door closed"
+    unique_id: front_door_closed
+```
+
+## Creating an automation from a blueprint
+
 ```yaml
 # automations.yaml
-- id: "living_room_motion_light"
-  alias: "Living Room Motion Light"
+- id: "hall_motion_light_bp"
+  alias: "Hall - motion light"
   use_blueprint:
-    path: motion_light.yaml
+    path: you/motion_light.yaml
     input:
-      motion_entity: binary_sensor.living_room_motion
+      motion_entity: binary_sensor.hall_motion
       light_target:
-        entity_id: light.living_room
-      no_motion_wait: 300
-      day_brightness: 100
-      night_brightness: 20
+        area_id: hall
+      no_motion_wait: 180
 ```
 
-## Blueprint Best Practices
+Import from a URL in the UI: Settings → Automations & scenes → Blueprints →
+Import blueprint.
 
-1. **Clear Descriptions**: Add helpful descriptions to all inputs
-2. **Sensible Defaults**: Provide default values where appropriate
-3. **Input Validation**: Use selector filters to limit invalid choices
-4. **Section Organization**: Group related inputs using sections
-5. **Mode Selection**: Choose appropriate mode (single, restart, queued, parallel)
-6. **Variables**: Use variables block to expose inputs for templates
-7. **Documentation**: Include source_url for updates and author attribution
+## Checklist
+
+- Current keys in the body (`triggers`, `actions`, `action`, `- trigger:`).
+- `homeassistant.min_version` set to the newest feature you rely on.
+- Every input in a collapsed section, and every `visible:` input, has a
+  `default`.
+- Inputs used in templates are copied to `variables` first.
+- `target` selectors filter with `entity:` only.
+- Optional entity inputs default to `""` and the template checks for it.
+- Test with a real automation created from the blueprint, then read its trace.
