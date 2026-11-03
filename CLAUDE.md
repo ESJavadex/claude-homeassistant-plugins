@@ -65,6 +65,12 @@ python3 -m unittest discover -s homeassistant-config/tests
 claude plugin validate . && claude plugin validate ./homeassistant-config --strict
 ```
 
+Before a release that touches the checkers, also run
+`bash homeassistant-config/tests/smoke_public_configs.sh` (ten big public
+configs) and read every error and warning: each one must be real, or become a
+fix plus a test. Rules are compared with `.HA_VERSION`; bump
+`RULES_CURRENT_TO` in `ha_yaml.py` when you add a newer release's changes.
+
 This repo is public: examples and fixtures use made-up entity IDs, never
 anyone's real config, hostnames, IPs, tokens or names.
 

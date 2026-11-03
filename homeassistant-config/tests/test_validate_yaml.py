@@ -195,3 +195,47 @@ class FeedbackRuleTests(unittest.TestCase):
         self.assertEqual(ha_yaml.parse_version("2026.11.0b3"), (2026, 11))
         self.assertEqual(ha_yaml.parse_version("2026.9.0.dev20260801"), (2026, 9))
         self.assertIsNone(ha_yaml.parse_version("unknown"))
+
+
+class PublicConfigFalsePositives(unittest.TestCase):
+    """Found by running the checkers over large public configs on GitHub."""
+
+    def check(self, text, name="x.yaml"):
+        return HAYamlValidator(ha_rules=True, ha_version=None).validate_text(text, Path(name))
+
+    def test_integration_triggers_take_entity_id(self):
+        r = self.check("- id: a\n  triggers:\n    - trigger: webostv.turn_on\n      entity_id: media_player.tv\n"
+                       "    - platform: samsungtv.turn_on\n      entity_id: media_player.tv2\n  actions: []\n")
+        self.assertFalse([w for w in r["warnings"] if "target" in w], r["warnings"])
+
+    def test_scene_state_booleans_are_fine(self):
+        r = self.check("- name: TV\n  entities:\n    light.a:\n      state: on\n      brightness: 10\n")
+        self.assertFalse([w for w in r["warnings"] if "boolean" in w], r["warnings"])
+        r = self.check("- id: a\n  triggers:\n    - trigger: state\n      entity_id: light.a\n      to: on\n  actions: []\n")
+        self.assertTrue([w for w in r["warnings"] if "boolean" in w])
+
+    def test_js_templates_wildcards_and_uppercase_ids(self):
+        r = self.check("a:\n  - entity_id: \"[[[ return entity.entity_id ]]]\"\n  - entity_id: light.*\n"
+                       "  - entity_id: media_player.LivingRoom\n  - entity_id: not-an-id\n")
+        self.assertEqual(len([w for w in r["warnings"] if "entity_id" in w]), 1, r["warnings"])
+
+    def test_merge_from_include_parses(self):
+        data, _ = ha_yaml.load_text("<<: !include common.yaml\nesphome:\n  name: x\n")
+        self.assertEqual(data["esphome"]["name"], "x")
+
+    def test_lovelace_gen_files_are_skipped(self):
+        r = self.check("# lovelace_gen\n{% raw %}\ntype: x\n{% endraw %}\n")
+        self.assertIn("skipped", r)
+        self.assertTrue(r["valid"])
+
+    def test_absolute_config_includes_map_to_the_config_folder(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "configuration.yaml").write_text("lovelace: !include /config/lovelace.yaml\n")
+            (root / "lovelace.yaml").write_text("dashboards:\n  dash-a:\n    mode: yaml\n    filename: ui-a.yaml\n")
+            (root / "ui-a.yaml").write_text("views:\n  - cards: !include /config/cards.yaml\n")
+            (root / "cards.yaml").write_text("- type: tile\n  entity: light.a\n")
+            (root / "old.yaml").write_text("a: 1\n")
+            loaded = {p.name for p in ha_yaml.loaded_files(root)}
+            self.assertEqual(loaded, {"configuration.yaml", "lovelace.yaml", "ui-a.yaml", "cards.yaml"})

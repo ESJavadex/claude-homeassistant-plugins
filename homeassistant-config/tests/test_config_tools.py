@@ -179,3 +179,29 @@ class FeedbackFixes(unittest.TestCase):
         _, report = run("find_duplicates.py", self.root)
         self.assertEqual(report["not_loaded"]["count"], 2)
         self.assertFalse(report.get("exact_duplicates", {}).get("automations"))
+
+
+class DuplicateFinderFalsePositives(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_blueprints_variables_and_template_entities(self):
+        (self.root / "automations.yaml").write_text(
+            "- id: a\n  alias: Back remote\n  use_blueprint:\n    path: x/remote.yaml\n    input: {device: aaa}\n"
+            "- id: b\n  alias: Vacuum map\n  use_blueprint:\n    path: y/map.yaml\n    input: {camera: c}\n")
+        (self.root / "scripts.yaml").write_text(
+            "on_x:\n  alias: Power on\n  variables: {state: 'off'}\n  sequence:\n    - action: homeassistant.turn_on\n"
+            "      target: {entity_id: '{{ entity }}'}\n"
+            "off_x:\n  alias: Power off\n  variables: {state: 'on'}\n  sequence:\n    - action: homeassistant.turn_on\n"
+            "      target: {entity_id: '{{ entity }}'}\n")
+        (self.root / "templates.yaml").write_text(
+            "- triggers:\n    - trigger: time_pattern\n      hours: /1\n  sensor:\n    - name: a\n      state: 1\n"
+            "- triggers:\n    - trigger: time_pattern\n      hours: /1\n  sensor:\n    - name: b\n      state: 2\n")
+        _, report = run("find_duplicates.py", self.root)
+        self.assertEqual(report["exact_duplicates"], {"automations": [], "scripts": []})
+        self.assertEqual(report["automations_found"], 2)
+        self.assertFalse(report["similar_items"]["automations"])

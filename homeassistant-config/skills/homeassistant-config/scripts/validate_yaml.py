@@ -129,7 +129,14 @@ HA_TOP_KEYS = {
 
 
 def _is_template(value: Any) -> bool:
-    return isinstance(value, str) and ("{{" in value or "{%" in value)
+    """Jinja, button-card JavaScript (`[[[ ]]]`) or a wildcard: not a literal ID."""
+    return isinstance(value, str) and any(m in value for m in ("{{", "{%", "[[[", "*"))
+
+
+# Integration triggers that predate purpose-specific triggers and take a bare entity_id.
+INTEGRATION_TRIGGERS = {
+    "samsungtv.turn_on", "webostv.turn_on", "philips_js.turn_on", "lg_netcast.turn_on",
+}
 
 
 class HAYamlValidator:
@@ -155,6 +162,11 @@ class HAYamlValidator:
 
     def validate_text(self, content: str, path: Path = Path("<stdin>")) -> dict:
         self.findings = []
+        if "lovelace_gen" in content.split("\n", 1)[0]:
+            # Jinja-preprocessed by the lovelace_gen custom component: not YAML until rendered.
+            result = self._result(path, None)
+            result["skipped"] = "lovelace_gen file (Jinja, rendered by a custom component); not checked"
+            return result
         for i, line in enumerate(content.splitlines(), 1):
             if "\t" in line[: len(line) - len(line.lstrip(" \t"))]:
                 self._add("error", i, "", "Tab used for indentation (Home Assistant needs spaces)", kind="yaml")
@@ -171,7 +183,7 @@ class HAYamlValidator:
 
         apply = self.ha_rules if self.ha_rules is not None else looks_like_ha(path, data)
         if apply:
-            self._check_bool_lines(content)
+            self._check_bool_lines(content, _scene_state_lines(data, content))
             self._visit(data, "", ())
             if isinstance(data, dict):
                 self._check_root(data, path)
@@ -234,10 +246,10 @@ class HAYamlValidator:
         result["dashboard"] = is_dashboard_data(data)
         return result
 
-    def _check_bool_lines(self, content: str):
+    def _check_bool_lines(self, content: str, skip: set = frozenset()):
         for i, line in enumerate(content.splitlines(), 1):
             m = BOOL_LINE.match(line)
-            if m:
+            if m and i not in skip:
                 key, value = m.group(1), m.group(2)
                 self._add("warning", i, key,
                           f"Unquoted {value} is read as a boolean, not the string \"{value}\". Quote it: \"{value.lower()}\"")
@@ -323,8 +335,9 @@ class HAYamlValidator:
         eid = d.get("entity_id")
         for value in (eid if isinstance(eid, list) else [eid]):
             if isinstance(value, str) and not isinstance(value, HATag) and not _is_template(value):
-                if value not in ("all", "none") and not ENTITY_ID.match(value) and not REGISTRY_ID.match(value):
-                    self._add("warning", line, f"{path}.entity_id", f"'{value}' is not a valid entity_id (domain.object_id, lowercase)")
+                # cv.entity_id lowercases, so `light.Kitchen` works in config
+                if value not in ("all", "none") and not ENTITY_ID.match(value.lower()) and not REGISTRY_ID.match(value):
+                    self._add("warning", line, f"{path}.entity_id", f"'{value}' is not a valid entity_id (domain.object_id)")
 
     def _check_trigger(self, d: dict, path: str, line: int):
         if "platform" in d and "trigger" in d:
@@ -338,7 +351,7 @@ class HAYamlValidator:
             new, since = REMOVED_TRIGGERS[kind]
             self._add("error", line, path, f"Trigger '{kind}' no longer exists; use '{new}'", since)
         options = d.get("options") if isinstance(d.get("options"), dict) else {}
-        if "." in kind:
+        if "." in kind and "platform" not in d and kind not in INTEGRATION_TRIGGERS:
             # purpose-specific trigger: target top-level, settings under options
             for key in ("behavior", "for", "threshold", "offset"):
                 if key in d and key not in options:
@@ -420,6 +433,29 @@ class HAYamlValidator:
         for item in notify if isinstance(notify, list) else []:
             if isinstance(item, dict) and item.get("platform") == "telegram":
                 self._add("warning", line_of(item), "notify", "`platform: telegram` notify is removed; use the Telegram bot notify entities", "2026.11")
+
+
+def _scene_state_lines(data: Any, content: str) -> set:
+    """Lines of `state: on/off` inside scene entities: scenes turn booleans into on/off."""
+    scenes = []
+    if isinstance(data, dict) and isinstance(data.get("scene"), list):
+        scenes = data["scene"]
+    elif isinstance(data, list) and data and all(isinstance(x, dict) and "entities" in x and not
+                                                 ({"triggers", "trigger", "sequence"} & set(x)) for x in data):
+        scenes = data
+    lines = content.splitlines()
+    out = set()
+    for scene in scenes:
+        entities = scene.get("entities") if isinstance(scene, dict) else None
+        if not isinstance(entities, dict):
+            continue
+        for ent in entities.values():
+            if isinstance(ent, dict) and isinstance(ent.get("state"), bool) and line_of(ent):
+                for i in range(line_of(ent), min(len(lines), line_of(ent) + len(ent) + 40) + 1):
+                    if re.match(r"^\s*state\s*:", lines[i - 1]):
+                        out.add(i)
+                        break
+    return out
 
 
 CARD_HINTS = {"cards", "card", "entity", "entities", "tap_action", "features", "badges", "sections"}
