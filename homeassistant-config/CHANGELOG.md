@@ -1,5 +1,55 @@
 # Changelog
 
+## 2.1.0 (2026-11-03)
+
+From the first round of feedback on real installs (thanks @nsleigh and
+@satscan1 in ESJavadex/claude-code-ha#75).
+
+### The hook
+- **No more silent skip without PyYAML.** When `python3` is a venv without
+  PyYAML (the add-on's persistent packages make one), the hook and the scripts
+  re-run themselves with the system Python. If no Python has PyYAML, the hook
+  says the check was skipped instead of passing in silence.
+- **Only a broken file blocks**: YAML syntax errors, tabs, duplicate keys.
+  Home Assistant rules (removed or deprecated syntax) come back as advice, so a
+  stale or wrong rule costs a sentence, never a forced edit.
+- The advice ends with "if `ha core check` or Repairs disagree, they are right".
+
+### Version-aware rules
+- Rules are compared with the installed release (`.HA_VERSION` in the config
+  folder, or `HA_VERSION`). A rule from a newer release is reported as
+  **upcoming** ("fine now, changes when you update"), not as an error.
+- `--ha-version=X` previews another release: `/ha-upgrade` uses it with
+  `version_latest` to list what an update will break before you install it.
+- When Home Assistant is newer than the rules (2026.11), the checkers say so.
+
+### Fewer false positives
+- Files that `configuration.yaml` never loads (archive or draft folders, card
+  snippets, add-on repos) are skipped and counted under `not_loaded`;
+  `--include-unloaded` checks them too. Applies to `validate_yaml.py`,
+  `check_config.py` and `find_duplicates.py`.
+- `!secret` is resolved like Home Assistant does (next to the file, then each
+  parent folder), so ESPHome files use `esphome/secrets.yaml`.
+- `!include` and `!secret` are read from the parsed YAML: commented-out lines
+  no longer count.
+- Duplicate automation IDs name the full relative path (two `automations.yaml`
+  in different folders were indistinguishable).
+- Entity registry IDs (32 hex characters, written by the UI editor in device
+  triggers and actions) are valid entity references.
+- Custom cards (`custom:*`) keep their own options: `features:` and
+  `entity: ''` are no longer checked as built-in card syntax. Cards nested
+  inside them still are.
+- `.storage/lovelace_dashboards` and `lovelace_resources` are skipped (they
+  list dashboards, they are not dashboards).
+- Blueprint inputs without a `default` in a collapsed section: info, not error.
+- `validate_yaml.py` on a folder never opens `secrets.yaml` (a syntax error
+  message would quote the line, value included).
+
+### Guidance
+- If a Home Assistant MCP server is connected (the MCP Server integration or
+  ha-mcp), the skill and the `ha-suggestions` agent use it for entity IDs,
+  states and Repairs instead of `curl`.
+
 ## 2.0.1 (2026-11-03)
 
 - Dashboard and card snippets kept as YAML files in the config folder (a

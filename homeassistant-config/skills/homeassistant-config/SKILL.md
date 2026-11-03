@@ -12,16 +12,18 @@ the result before telling the user it is done.
 
 ## 1. Before writing anything
 
-1. **Find the version.** In the Claude Terminal add-on: `ha core info` (or
-   `curl -s -H "Authorization: Bearer $SUPERVISOR_TOKEN" http://supervisor/core/info`).
-   Elsewhere: Settings > About. Gate new features on it (table in section 3).
+1. **Find the version.** `cat /config/.HA_VERSION`, or in the Claude Terminal
+   add-on `ha core info`. Elsewhere: Settings > About. Gate new features on it
+   (table in section 3). The checkers read `.HA_VERSION` themselves.
 2. **Find the config folder.** `/config` on HA OS and in most add-ons, sometimes
    `/homeassistant`. `configuration.yaml` is the root.
 3. **Look before you add.** Read how the user already organises things
    (`!include`, `packages/`, UI-managed `automations.yaml`) and follow it.
-   Reuse their entity IDs: list them with
-   `curl -s -H "Authorization: Bearer $SUPERVISOR_TOKEN" http://supervisor/core/api/states | jq -r '.[].entity_id'`
-   or ask. Never invent entity IDs.
+   Reuse their entity IDs. If a Home Assistant MCP server is connected (the
+   official MCP Server integration or ha-mcp), use it for entity IDs, live
+   states and Repairs. Otherwise, in the add-on:
+   `curl -s -H "Authorization: Bearer $SUPERVISOR_TOKEN" http://supervisor/core/api/states | jq -r '.[].entity_id'`.
+   Or ask. Never invent entity IDs.
 4. **Back up** a file before rewriting it (`cp automations.yaml automations.yaml.bak-$(date +%Y%m%d-%H%M)`).
 
 ## 2. Rules for current syntax
@@ -186,7 +188,8 @@ plus `resource_mode: yaml`.
 ## 5. Check your work
 
 Run the bundled checkers. They understand `!include`, `!secret` and `!input`
-(plain `yaml.safe_load` does not) and know what changed up to 2026.11:
+(plain `yaml.safe_load` does not) and know what changed up to 2026.11. If
+`python3` has no PyYAML (a venv), they re-run themselves with the system Python.
 
 ```bash
 # syntax, tabs, duplicate keys, removed/deprecated syntax (file or whole folder)
@@ -199,7 +202,12 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/check_config.py" /config
 python3 "${CLAUDE_SKILL_DIR}/scripts/find_duplicates.py" /config
 ```
 Levels: **error** = will not work, **warning** = deprecated or ignored,
-**info** = old style that still works.
+**info** = old style that still works, **upcoming** = fine on the installed
+release, changes in a newer one. Rules are compared with the installed
+version (`.HA_VERSION`); `--ha-version=2026.12` previews another release.
+On a config folder, files that `configuration.yaml` never loads (archive,
+drafts) are skipped and listed under `not_loaded`; `--include-unloaded`
+checks them too.
 
 Then let Home Assistant itself check and load it:
 ```bash
@@ -214,8 +222,14 @@ Reload actions: `automation.reload`, `script.reload`, `scene.reload`,
 Without the CLI: Developer tools > YAML > Check configuration. After a change,
 look at Settings > Repairs too: Home Assistant lists deprecated config there.
 
-A plugin hook runs `validate_yaml.py` after every YAML edit and reports errors
-back to you. If it reports something, fix it before moving on.
+**`ha core check` and Repairs have the last word.** These rules are written by
+hand and can lag behind or be wrong for an edge case; if Home Assistant
+disagrees with them, trust Home Assistant and say so. If the install is newer
+than 2026.11, the checkers say so: read the release notes for what changed since.
+
+A plugin hook checks every YAML file you write or edit. A broken file (syntax
+error, tabs, duplicate keys) comes back as a block: fix it at once. Rule
+findings come back as advice: fix what applies to the user's version.
 
 ## 6. References (read when the task needs them)
 

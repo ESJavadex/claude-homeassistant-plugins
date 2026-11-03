@@ -17,8 +17,18 @@ Home Assistant YAML is not plain YAML: it uses custom tags (!include, !secret,
 from __future__ import annotations
 
 import os
+import re
+import subprocess
+import sys
 from pathlib import Path
-from typing import Any, Iterator, List, Optional, Tuple
+from typing import Any, Iterator, List, Optional, Set, Tuple
+
+# Newest Home Assistant release whose changes these rules know about.
+RULES_CURRENT_TO = "2026.11"
+
+# Interpreters to try when the current one has no PyYAML (for example a venv
+# made without --system-site-packages, like the add-on's persistent packages).
+PYTHON_FALLBACKS = ("/usr/bin/python3", "/usr/local/bin/python3", "/bin/python3", "/usr/bin/python")
 
 try:
     import yaml
@@ -131,8 +141,34 @@ if yaml is not None:
 def require_yaml() -> Optional[str]:
     """Return an error message when PyYAML is missing, else None."""
     if yaml is None:
-        return "PyYAML not installed. Run: pip install pyyaml (Alpine: apk add py3-yaml)"
+        return (f"PyYAML is not available to {sys.executable} and no other Python with it was found. "
+                "Run: pip install pyyaml (Alpine: apk add py3-yaml)")
     return None
+
+
+def ensure_yaml() -> None:
+    """Re-run this script with a Python that has PyYAML, if this one lacks it.
+
+    Call it first thing in main(), before reading stdin. If no interpreter has
+    PyYAML it returns and the caller reports `require_yaml()`.
+    """
+    if yaml is not None or os.environ.get("HA_PLUGIN_REEXEC"):
+        return
+    current = os.path.realpath(sys.executable or "")
+    candidates = [os.environ.get("HA_PLUGIN_PYTHON", "")] + list(PYTHON_FALLBACKS)
+    for cand in candidates:
+        if not cand or not os.path.isfile(cand) or os.path.realpath(cand) == current:
+            continue
+        try:
+            ok = subprocess.run([cand, "-c", "import yaml"], capture_output=True, timeout=10).returncode == 0
+        except Exception:
+            ok = False
+        if ok:
+            os.environ["HA_PLUGIN_REEXEC"] = "1"
+            try:
+                os.execv(cand, [cand] + sys.argv)
+            except OSError:
+                return
 
 
 def load_text(text: str) -> Tuple[Any, List[Tuple[str, int]]]:
@@ -178,3 +214,134 @@ def walk(data: Any, path: str = "") -> Iterator[Tuple[str, Any]]:
     elif isinstance(data, list):
         for i, item in enumerate(data):
             yield from walk(item, f"{path}[{i}]")
+
+
+# ---------------------------------------------------------------- versions
+
+def parse_version(value: Any) -> Optional[Tuple[int, int]]:
+    """'2026.10.4', '2026.11.0b2', '2026.11.0.dev2026...' -> (2026, 10)."""
+    m = re.match(r"\s*(\d{4})\.(\d{1,2})", str(value or ""))
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def find_config_root(path: Path, levels: int = 8) -> Optional[Path]:
+    """The nearest folder at or above `path` that holds configuration.yaml."""
+    p = Path(path).resolve()
+    if p.is_file():
+        p = p.parent
+    for _ in range(levels):
+        if (p / "configuration.yaml").is_file():
+            return p
+        if p.parent == p:
+            break
+        p = p.parent
+    return None
+
+
+def installed_version(path: Path) -> Optional[str]:
+    """The Home Assistant version that runs this config, if we can tell.
+
+    `HA_VERSION` in the environment wins; otherwise `.HA_VERSION`, which Home
+    Assistant writes in the config folder on every start.
+    """
+    env = os.environ.get("HA_VERSION", "").strip()
+    if env:
+        return env if parse_version(env) else None
+    root = find_config_root(path)
+    if root is None:
+        return None
+    try:
+        text = (root / ".HA_VERSION").read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return text if parse_version(text) else None
+
+
+# ------------------------------------------------------------ loaded files
+
+def iter_tags(data: Any) -> Iterator[HATag]:
+    """Every tagged scalar (`!include x`, `!secret y`...) in parsed data. Comments never get here."""
+    if isinstance(data, HATag):
+        yield data
+    elif isinstance(data, dict):
+        for value in data.values():
+            yield from iter_tags(value)
+    elif isinstance(data, list):
+        for item in data:
+            yield from iter_tags(item)
+
+
+def loaded_files(root: Path) -> Optional[Set[Path]]:
+    """Files Home Assistant actually loads, following configuration.yaml.
+
+    Follows `!include` and `!include_dir_*` (recursive, `*.yaml` like HA) from
+    configuration.yaml, plus YAML dashboards declared under `lovelace:`.
+    Returns None when there is no configuration.yaml to start from.
+    """
+    root = Path(root).resolve()
+    main = root / "configuration.yaml"
+    if not main.is_file() or yaml is None:
+        return None
+    seen: Set[Path] = set()
+    stack = [main]
+    if (root / "ui-lovelace.yaml").is_file():
+        stack.append(root / "ui-lovelace.yaml")
+    while stack:
+        f = Path(stack.pop()).resolve()
+        if f in seen or not f.is_file():
+            continue
+        seen.add(f)
+        try:
+            data, _ = load_file(f)
+        except Exception:
+            continue
+        for tag in iter_tags(data):
+            if tag.tag == "include":
+                stack.append(f.parent / str(tag))
+            elif tag.tag.startswith("include_dir_"):
+                d = f.parent / str(tag)
+                if d.is_dir():
+                    stack.extend(sorted(p for p in d.rglob("*.yaml") if not p.name.startswith(".")))
+        lovelace = data.get("lovelace") if isinstance(data, dict) else None
+        dashboards = lovelace.get("dashboards") if isinstance(lovelace, dict) else None
+        if isinstance(dashboards, dict):
+            for dash in dashboards.values():
+                if isinstance(dash, dict) and isinstance(dash.get("filename"), str):
+                    stack.append(root / dash["filename"])
+    return seen
+
+
+# Folders whose YAML is loaded by something other than configuration.yaml.
+LOADED_ELSEWHERE = {"blueprints", "esphome"}
+
+
+def is_unloaded(path: Path, root: Path, loaded: Optional[Set[Path]]) -> bool:
+    """True when `path` sits in the config folder but nothing loads it."""
+    if loaded is None:
+        return False
+    p = Path(path).resolve()
+    if p in loaded or p.name == "secrets.yaml":
+        return False
+    try:
+        rel = p.relative_to(Path(root).resolve())
+    except ValueError:
+        return False
+    return not (set(part.lower() for part in rel.parts[:-1]) & LOADED_ELSEWHERE)
+
+
+def secrets_files_for(path: Path, root: Optional[Path]) -> List[Path]:
+    """secrets.yaml files that can resolve `!secret` in `path`, nearest first.
+
+    Home Assistant looks next to the file and then in each parent folder up to
+    the config folder; ESPHome uses the secrets.yaml next to the node file.
+    """
+    out: List[Path] = []
+    p = Path(path).resolve().parent
+    stop = Path(root).resolve() if root else None
+    for _ in range(10):
+        if (p / "secrets.yaml").is_file():
+            out.append(p / "secrets.yaml")
+        if stop is None or p == stop or p.parent == p:
+            break
+        p = p.parent
+    return out

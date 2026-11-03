@@ -17,8 +17,11 @@ from difflib import SequenceMatcher
 from collections import defaultdict
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from ha_yaml import iter_yaml_files, load_text, require_yaml  # noqa: E402
+from ha_yaml import (  # noqa: E402
+    ensure_yaml, find_config_root, is_unloaded, iter_yaml_files, load_text, loaded_files, require_yaml,
+)
 
+ensure_yaml()
 if require_yaml():
     print(json.dumps({"error": require_yaml()}))
     sys.exit(1)
@@ -54,8 +57,10 @@ class DuplicateFinder:
 
     SIMILARITY_THRESHOLD = 0.8  # 80% similarity for "similar" items
 
-    def __init__(self, verbose: bool = False):
+    def __init__(self, verbose: bool = False, include_unloaded: bool = False):
         self.verbose = verbose
+        self.include_unloaded = include_unloaded
+        self.not_loaded: List[str] = []
         self.automations: List[dict] = []
         self.scripts: List[dict] = []
         self.files_checked: List[str] = []
@@ -77,11 +82,12 @@ class DuplicateFinder:
 
     def _scan_directory(self, directory: Path) -> None:
         """Scan all YAML files in a directory."""
-        yaml_files = list(iter_yaml_files(directory))
-
-        for yaml_file in yaml_files:
-            # Skip hidden directories and common non-config files
-            if any(part.startswith('.') for part in yaml_file.parts):
+        root = find_config_root(directory)
+        loaded = loaded_files(root) if root and not self.include_unloaded else None
+        for yaml_file in iter_yaml_files(directory):
+            # Copies in archive/draft folders are not loaded by HA: not duplicates
+            if root and is_unloaded(yaml_file, root, loaded):
+                self.not_loaded.append(str(yaml_file))
                 continue
             self._scan_file(yaml_file)
 
@@ -527,8 +533,14 @@ def main():
     path = sys.argv[1]
     verbose = "--verbose" in sys.argv or "-v" in sys.argv
 
-    finder = DuplicateFinder(verbose=verbose)
+    finder = DuplicateFinder(verbose=verbose, include_unloaded="--include-unloaded" in sys.argv)
     result = finder.scan_path(path)
+    if finder.not_loaded:
+        result["not_loaded"] = {
+            "count": len(finder.not_loaded),
+            "files": finder.not_loaded[:20],
+            "note": "Not loaded by configuration.yaml, so skipped. Use --include-unloaded to compare them too.",
+        }
 
     print(json.dumps(result, indent=2, default=str))
 

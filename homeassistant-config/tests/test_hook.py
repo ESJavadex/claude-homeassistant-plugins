@@ -48,13 +48,70 @@ class HookTests(unittest.TestCase):
         code, out, err = run_hook(self.event("automations.yaml"))
         self.assertEqual((code, out), (0, ""))
 
-    def test_error_blocks_with_reason(self):
+    def test_rule_error_is_advice_not_a_block(self):
+        # Removed syntax is reported as context; only a broken file blocks.
         self.write("configuration.yaml", "sensor:\n  - platform: template\n    sensors: {}\n")
         code, out, _ = run_hook(self.event("configuration.yaml", tool="Write"))
         self.assertEqual(code, 0)
         payload = json.loads(out)
-        self.assertEqual(payload["decision"], "block")
-        self.assertIn("Legacy template sensor", payload["reason"])
+        self.assertNotIn("decision", payload)
+        ctx = payload["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("Will not work", ctx)
+        self.assertIn("Legacy template sensor", ctx)
+        self.assertIn("ha core check", ctx)
+
+    def test_duplicate_keys_and_tabs_block(self):
+        self.write("scripts.yaml", "a:\n  sequence: []\na:\n  sequence: []\n")
+        self.assertEqual(json.loads(run_hook(self.event("scripts.yaml"))[1])["decision"], "block")
+        self.write("scripts.yaml", "a:\n\tsequence: []\n")
+        self.assertEqual(json.loads(run_hook(self.event("scripts.yaml"))[1])["decision"], "block")
+
+    def test_rules_are_gated_on_installed_version(self):
+        # A 2026.11 rule on a 2026.10 install: heads-up, not an error.
+        (self.root / ".HA_VERSION").write_text("2026.10.4")
+        self.write("scripts.yaml", (
+            "t:\n  fields:\n    d:\n      selector:\n        target:\n          device:\n"
+            "            integration: hue\n  sequence: []\n"
+        ))
+        payload = json.loads(run_hook(self.event("scripts.yaml"))[1])
+        self.assertNotIn("decision", payload)
+        ctx = payload["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("2026.10.4", ctx)
+        self.assertIn("changes in a newer release", ctx)
+        self.assertNotIn("Will not work", ctx)
+        # Same file on 2026.11: now it does not work.
+        (self.root / ".HA_VERSION").write_text("2026.11.0")
+        ctx = json.loads(run_hook(self.event("scripts.yaml"))[1])["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("Will not work", ctx)
+
+    def test_newer_ha_than_rules_is_said(self):
+        (self.root / ".HA_VERSION").write_text("2027.3.1")
+        self.write("configuration.yaml", "http:\n  server_port: 8123\n")
+        ctx = json.loads(run_hook(self.event("configuration.yaml"))[1])["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("up to 2026.11", ctx)
+
+    def test_missing_pyyaml_is_reported_not_silent(self):
+        # `python3 -S` hides site-packages, like a venv made without
+        # --system-site-packages; HA_PLUGIN_REEXEC=1 disables the fallback.
+        self.write("scripts.yaml", "a: [1, 2\n")
+        env = dict(os.environ, CLAUDE_PLUGIN_ROOT=str(PLUGIN), HA_PLUGIN_REEXEC="1")
+        out = subprocess.run([sys.executable, "-S", str(HOOK)], input=json.dumps(self.event("scripts.yaml")),
+                             capture_output=True, text=True, env=env)
+        self.assertEqual(out.returncode, 0)
+        ctx = json.loads(out.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("was skipped", ctx)
+
+    def test_missing_pyyaml_falls_back_to_a_python_that_has_it(self):
+        # HA_PLUGIN_PYTHON stands in for /usr/bin/python3 with py3-yaml.
+        wrapper = self.root / "system-python"
+        wrapper.write_text(f"#!/bin/sh\nexec '{sys.executable}' \"$@\"\n")
+        wrapper.chmod(0o755)
+        self.write("scripts.yaml", "a: [1, 2\n")
+        env = dict(os.environ, CLAUDE_PLUGIN_ROOT=str(PLUGIN), HA_PLUGIN_PYTHON=str(wrapper))
+        env.pop("HA_PLUGIN_REEXEC", None)
+        out = subprocess.run([sys.executable, "-S", str(HOOK)], input=json.dumps(self.event("scripts.yaml")),
+                             capture_output=True, text=True, env=env)
+        self.assertEqual(json.loads(out.stdout)["decision"], "block")
 
     def test_syntax_error_blocks(self):
         self.write("scripts.yaml", "a: [1, 2\n")

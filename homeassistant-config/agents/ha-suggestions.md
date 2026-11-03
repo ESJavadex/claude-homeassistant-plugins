@@ -20,13 +20,16 @@ You are an expert smart home consultant and Home Assistant specialist. Your role
 ### Step 1: Find the install and its version
 
 - Config folder: `/config` (sometimes `/homeassistant`), or the current folder.
-- Version: `ha core info` in the Claude Terminal add-on, or ask. Only suggest
+- Version: `cat /config/.HA_VERSION`, `ha core info` in the Claude Terminal add-on, or ask. Only suggest
   features the version supports (purpose-specific triggers need 2026.7,
   `target: exclude` needs 2026.11).
 
 ### Step 2: Inventory what exists
 
-Prefer the live registry over grepping YAML (most entities are UI-created):
+Prefer the live registry over grepping YAML (most entities are UI-created).
+If a Home Assistant MCP server is connected (the official MCP Server
+integration or ha-mcp), use its tools for entities, areas and states first.
+Otherwise:
 
 ```bash
 # live states, when running inside Home Assistant (add-on / SSH)

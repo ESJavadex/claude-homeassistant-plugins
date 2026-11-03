@@ -13,7 +13,11 @@ Target: `$ARGUMENTS`, or `/config`.
 1. **Inventory.** Run
    `python3 "${CLAUDE_PLUGIN_ROOT}/skills/homeassistant-config/scripts/validate_yaml.py" <target> --quiet`
    and, for dashboards, `lovelace_validator.py`. Get the HA version
-   (`ha core info`) so you never write syntax newer than the install.
+   (`cat /config/.HA_VERSION`, `ha core info`) so you never write syntax newer
+   than the install.
+   **Before an update:** `ha core info` shows `version_latest`; re-run the
+   validator with `--ha-version=<that release>` to list what the update will
+   break, and fix that first.
 2. **Plan.** Show the user a short table: file, how many findings per level,
    what you would change. Order by risk:
    - errors first (things that already do not work: legacy `platform: template`,
