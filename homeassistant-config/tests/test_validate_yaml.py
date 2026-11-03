@@ -63,7 +63,7 @@ class ModernConfigTests(unittest.TestCase):
             capture_output=True, text=True,
         )
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
-        self.assertEqual(json.loads(out.stdout)["summary"]["files"], 7)
+        self.assertEqual(json.loads(out.stdout)["summary"]["files"], 6)  # secrets.yaml is never opened
 
 
 class LegacyConfigTests(unittest.TestCase):
@@ -161,3 +161,37 @@ class FileProblemTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FeedbackRuleTests(unittest.TestCase):
+    def check(self, text, **kw):
+        return HAYamlValidator(ha_rules=True, **kw).validate_text(text, Path("x.yaml"))
+
+    def test_registry_entity_ids_are_valid(self):
+        r = self.check("- id: a\n  triggers: []\n  actions:\n    - device_id: abc\n      domain: light\n"
+                       "      entity_id: 0123456789abcdef0123456789abcdef\n      type: turn_on\n", ha_version=None)
+        self.assertFalse([w for w in r["warnings"] if "entity_id" in w], r["warnings"])
+
+    def test_collapsed_section_without_default_is_only_info(self):
+        r = self.check("blueprint:\n  name: b\n  domain: automation\n  input:\n    s:\n      collapsed: true\n"
+                       "      input:\n        x:\n          selector:\n            text: {}\n", ha_version=None)
+        self.assertEqual(r["errors"], [])
+        self.assertTrue(any("collapsed" in i for i in r["info"]))
+
+    def test_upcoming_rules_on_older_install(self):
+        text = "t:\n  fields:\n    d:\n      selector:\n        target:\n          device:\n            integration: hue\n  sequence: []\n"
+        r = self.check(text, ha_version="2026.10.4")
+        self.assertEqual(r["errors"], [])
+        self.assertTrue(r["valid"])
+        self.assertEqual(len(r["upcoming"]), 1)
+        self.assertEqual(len(self.check(text, ha_version="2026.11.1")["errors"]), 1)
+        self.assertEqual(len(self.check(text, ha_version=None)["errors"]), 1)  # unknown: apply all
+
+    def test_note_when_ha_is_newer_than_rules(self):
+        self.assertIn("2026.11", self.check("a: 1\n", ha_version="2027.1.0").get("note", ""))
+        self.assertNotIn("note", self.check("a: 1\n", ha_version="2026.11.2"))
+
+    def test_version_parsing(self):
+        self.assertEqual(ha_yaml.parse_version("2026.11.0b3"), (2026, 11))
+        self.assertEqual(ha_yaml.parse_version("2026.9.0.dev20260801"), (2026, 9))
+        self.assertIsNone(ha_yaml.parse_version("unknown"))

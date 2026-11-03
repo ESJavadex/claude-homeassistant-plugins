@@ -30,7 +30,7 @@ from typing import Any, Dict, List, Optional, Set
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from ha_yaml import HATag, LineDict, line_of, load_text, require_yaml  # noqa: E402
+from ha_yaml import HATag, LineDict, ensure_yaml, line_of, load_text, require_yaml  # noqa: E402
 
 try:
     import yaml
@@ -142,6 +142,9 @@ def _is_dynamic(value: str) -> bool:
     return isinstance(value, HATag) or any(m in value for m in TEMPLATE_MARKERS)
 
 
+REGISTRY_FILES = {"lovelace_dashboards", "lovelace_resources"}
+
+
 class LovelaceValidator:
     def __init__(self, strict: bool = False):
         self.strict = strict
@@ -152,6 +155,7 @@ class LovelaceValidator:
         self.views = 0
         self.sections = 0
         self._seen: Set[int] = set()
+        self.skipped: Optional[str] = None
         self._warned_entities: Set[str] = set()
 
     # ------------------------------------------------------------------ util
@@ -221,9 +225,13 @@ class LovelaceValidator:
                 self.add("warning", None, key,
                          f"Duplicate key '{key}': only the last one is used", line=line)
 
-        if fmt == "json" and isinstance(data, dict) and isinstance(data.get("data"), dict) \
-                and "config" in data["data"]:
-            data = data["data"]["config"]
+        if fmt == "json" and isinstance(data, dict) and isinstance(data.get("data"), dict):
+            if "config" in data["data"]:
+                data = data["data"]["config"]
+            elif "items" in data["data"] or path.name in REGISTRY_FILES:
+                # .storage/lovelace_dashboards, lovelace_resources: lists, not dashboards
+                self.skipped = f"{path.name} is the list of dashboards/resources, not a dashboard"
+                return self._result(path, fmt)
 
         self.validate(data)
         return self._result(path, fmt)
@@ -493,12 +501,15 @@ class LovelaceValidator:
                 self.add("error", card, path, "Tile card requires `entity`")
             self._enum(card, "features_position", {"bottom", "inline"}, path)
 
-        if "features" in card and isinstance(card["features"], list):
+        # Custom cards define their own options (`features:`, `entity: ''`...):
+        # only their nested cards and actions are checked.
+        if "features" in card and isinstance(card["features"], list) and not custom:
             for i, feat in enumerate(card["features"]):
                 self.feature(feat, f"{path}.features[{i}]", custom)
 
         self.scan_actions(card, path, custom or in_custom)
-        self.scan_entities(card, path)
+        if not custom:
+            self.scan_entities(card, path)
 
     def layout(self, node: dict, path: str) -> None:
         lo = node.get("layout_options")
@@ -691,7 +702,7 @@ class LovelaceValidator:
     # ------------------------------------------------------------- entities
 
     def entity_ref(self, value: Any, path: str, node: Any) -> None:
-        if not isinstance(value, str) or _is_dynamic(value):
+        if not isinstance(value, str) or not value or _is_dynamic(value):
             return
         self.entities.add(value)
         if not ENTITY_ID_RE.match(value) and path not in self._warned_entities:
@@ -759,6 +770,7 @@ class LovelaceValidator:
             "valid": valid,
             "file": str(path.absolute()),
             "format": fmt,
+            **({"skipped": self.skipped} if self.skipped else {}),
             "summary": {
                 "views": self.views,
                 "sections": self.sections,
@@ -774,6 +786,7 @@ class LovelaceValidator:
 
 
 def main(argv: List[str]) -> int:
+    ensure_yaml()
     args = [a for a in argv if not a.startswith("--")]
     if not args:
         print(json.dumps({
@@ -785,10 +798,16 @@ def main(argv: List[str]) -> int:
             ],
         }, indent=2))
         return 1
-    validator = LovelaceValidator(strict="--strict" in argv)
-    result = validator.validate_file(args[0])
-    print(json.dumps(result, indent=2, ensure_ascii=False))
-    return 0 if result["valid"] else 1
+    results = []
+    for arg in args:
+        if Path(arg).name in REGISTRY_FILES:
+            continue  # `.storage/lovelace*` globs also match the registries
+        results.append(LovelaceValidator(strict="--strict" in argv).validate_file(arg))
+    if len(results) == 1:
+        print(json.dumps(results[0], indent=2, ensure_ascii=False))
+    else:
+        print(json.dumps(results, indent=2, ensure_ascii=False))
+    return 0 if all(r["valid"] for r in results) else 1
 
 
 if __name__ == "__main__":

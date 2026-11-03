@@ -7,12 +7,17 @@ $CLAUDE_TOOL_INPUT variable). We read `tool_input.file_path`, then validate the
 WHOLE file on disk, which works the same for Write, Edit and MultiEdit (an Edit
 only carries a fragment, which is not valid YAML on its own).
 
-- Errors (syntax, tabs, duplicate keys, removed syntax) -> `decision: block`, so
-  Claude sees the problem and fixes it in the same turn.
-- Warnings (deprecated-but-working syntax) -> exit 0 + additionalContext, so
-  Claude is told without interrupting anything.
-- Anything unexpected (no PyYAML, unreadable file, bad JSON) -> exit 0 silently.
-  A validator must never block work because of its own bugs.
+- Only a broken file blocks (YAML syntax error, tabs, duplicate keys): that is
+  certain whatever Home Assistant version runs. `decision: block` makes Claude
+  fix it in the same turn.
+- Home Assistant rules (removed or deprecated syntax) are compared with the
+  installed release (`.HA_VERSION`) and passed as additionalContext: advice,
+  never a forced edit. `ha core check` and Settings > Repairs have the last word.
+- No PyYAML: re-run with a system Python that has it (a persistent venv without
+  --system-site-packages hides the image's py3-yaml); if none has it, say the
+  check was skipped instead of passing in silence.
+- Anything unexpected (unreadable file, bad JSON, a bug here) -> exit 0
+  silently. A validator must never block work because of its own bugs.
 
 Home Assistant rules only run when the file looks like HA config (an ancestor
 holds configuration.yaml, the path is under /config or /homeassistant, or it is
@@ -38,7 +43,19 @@ def is_dashboard(path: Path, keys) -> bool:
     )
 
 
+def emit_context(text: str) -> None:
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": text}}))
+
+
 def main() -> int:
+    plugin_root = Path(os.environ.get("CLAUDE_PLUGIN_ROOT") or Path(__file__).resolve().parent.parent)
+    sys.path.insert(0, str(plugin_root / "skills" / "homeassistant-config" / "scripts"))
+    try:
+        from ha_yaml import ensure_yaml, require_yaml  # noqa: E402
+    except Exception:
+        return 0
+    ensure_yaml()  # may re-exec with another Python; stdin is still unread here
+
     try:
         event = json.load(sys.stdin)
     except Exception:
@@ -55,14 +72,13 @@ def main() -> int:
     if not path.is_file():
         return 0
 
-    plugin_root = Path(os.environ.get("CLAUDE_PLUGIN_ROOT") or Path(__file__).resolve().parent.parent)
-    sys.path.insert(0, str(plugin_root / "skills" / "homeassistant-config" / "scripts"))
+    missing = require_yaml()
+    if missing:
+        emit_context(f"homeassistant-config: the YAML check for {path.name} was skipped. {missing}")
+        return 0
     try:
         from validate_yaml import HAYamlValidator  # noqa: E402
-        from ha_yaml import require_yaml  # noqa: E402
     except Exception:
-        return 0
-    if require_yaml():
         return 0
 
     try:
@@ -70,10 +86,15 @@ def main() -> int:
     except Exception:
         return 0
 
-    errors = result.get("errors") or []
+    broken = []  # the file itself is broken: certain, so it blocks
     if result.get("error"):
-        errors = [f"{result['error']}: {result.get('details', '')}".strip(": ")] + errors
-    warnings = result.get("warnings") or []
+        broken.append(f"{result['error']}: {result.get('details', '')}".strip(": "))
+    findings = result.get("findings") or []
+    fmt = format_finding
+    broken += [fmt(f) for f in findings if f.get("kind") == "yaml" and f["level"] == "error"]
+    errors = [fmt(f) for f in findings if f.get("kind") != "yaml" and f["level"] == "error" and not f.get("upcoming")]
+    warnings = [fmt(f) for f in findings if f["level"] == "warning" and not f.get("upcoming")]
+    upcoming = [fmt(f) for f in findings if f.get("upcoming") and f["level"] != "info"]
 
     # Dashboards get the dashboard rules too (syntax is already covered above).
     if not result.get("error") and (result.get("dashboard") or is_dashboard(path, result.get("keys"))):
@@ -85,13 +106,10 @@ def main() -> int:
         except Exception:
             pass
 
-    if errors:
-        lines = [f"Home Assistant YAML check failed for {path}:"]
-        lines += [f"  - {e}" for e in errors[:MAX_MESSAGES]]
-        if warnings:
-            lines.append("Also worth fixing:")
-            lines += [f"  - {w}" for w in warnings[: max(0, MAX_MESSAGES - len(errors))]]
-        lines.append("Fix the file before continuing (run validate_yaml.py from the homeassistant-config skill for the full report).")
+    if broken:
+        lines = [f"{path} is not valid YAML, so Home Assistant cannot load it:"]
+        lines += [f"  - {e}" for e in broken[:MAX_MESSAGES]]
+        lines.append("Fix the file before continuing.")
         # PostToolUse cannot undo the write; `decision: block` feeds the reason
         # back to Claude so it repairs the file in the same turn.
         print(json.dumps({
@@ -101,22 +119,36 @@ def main() -> int:
         }))
         return 0
 
-    if warnings:
-        shown = warnings[:MAX_MESSAGES]
-        more = len(warnings) - len(shown)
-        context = (
-            f"homeassistant-config: {path.name} is valid YAML, but uses outdated Home Assistant syntax:\n"
-            + "\n".join(f"- {w}" for w in shown)
-            + (f"\n- ... and {more} more" if more > 0 else "")
-            + "\nUpdate it to the current syntax unless the user asked to keep it."
-        )
-        print(json.dumps({
-            "hookSpecificOutput": {
-                "hookEventName": "PostToolUse",
-                "additionalContext": context,
-            }
-        }))
+    if not (errors or warnings or upcoming):
+        return 0
+    version = result.get("ha_version")
+    running = f"Home Assistant {version}" if version else "current Home Assistant (installed version unknown)"
+    lines = [f"homeassistant-config checked {path.name} against {running}:"]
+    budget = MAX_MESSAGES
+    for title, items in (
+        ("Will not work (fix before relying on it):", errors),
+        ("Deprecated or ignored:", warnings),
+        ("Fine for now, changes in a newer release:", upcoming),
+    ):
+        if items and budget > 0:
+            lines.append(title)
+            lines += [f"- {i}" for i in items[:budget]]
+            if len(items) > budget:
+                lines.append(f"- ... and {len(items) - budget} more")
+            budget -= len(items)
+    if result.get("note"):
+        lines.append(result["note"])
+    lines.append("Fix what applies unless the user asked to keep it. If `ha core check` or "
+                 "Settings > Repairs disagree with this check, they are right.")
+    emit_context("\n".join(lines))
     return 0
+
+
+def format_finding(f: dict) -> str:
+    where = f"Line {f['line']}: " if f.get("line") else ""
+    at = f"{f['path']}: " if f.get("path") else ""
+    since = f" [HA {f['since']}]" if f.get("since") else ""
+    return f"{where}{at}{f['message']}{since}"
 
 
 if __name__ == "__main__":

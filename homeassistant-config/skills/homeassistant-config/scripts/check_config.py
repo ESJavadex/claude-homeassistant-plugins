@@ -3,7 +3,15 @@
 Home Assistant Configuration Checker
 
 Analyzes HA configuration files for structure, dependencies, and best practices.
-Usage: python3 check_config.py <directory_or_file> [--verbose]
+Usage: python3 check_config.py <directory_or_file> [--verbose] [--include-unloaded]
+
+- `!include` / `!secret` are read from the parsed YAML, so commented-out lines
+  never count.
+- `!secret` is resolved like Home Assistant does: secrets.yaml next to the file,
+  then each parent folder up to the config folder (ESPHome files use
+  esphome/secrets.yaml).
+- In a config folder, files that configuration.yaml never loads (archive and
+  draft folders) are skipped and counted; --include-unloaded checks them too.
 """
 
 import sys
@@ -14,8 +22,12 @@ from pathlib import Path
 from typing import Dict, List, Set, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from ha_yaml import iter_yaml_files, load_text, require_yaml  # noqa: E402
+from ha_yaml import (  # noqa: E402
+    ensure_yaml, find_config_root, is_unloaded, iter_tags, iter_yaml_files,
+    load_text, loaded_files, require_yaml, secrets_files_for,
+)
 
+ensure_yaml()
 if require_yaml():
     print(json.dumps({"error": require_yaml()}))
     sys.exit(1)
@@ -35,15 +47,17 @@ class HAConfigChecker:
         "logbook", "person", "zone", "device_tracker", "geo_location"
     }
 
-    def __init__(self, verbose: bool = False):
+    def __init__(self, verbose: bool = False, include_unloaded: bool = False):
         self.verbose = verbose
+        self.include_unloaded = include_unloaded
+        self.not_loaded: List[str] = []
         self.files_checked: List[str] = []
         self.entities_found: Dict[str, Set[str]] = {}
         self.secrets_used: Set[str] = set()
         self.includes_found: List[dict] = []
         self.issues: List[dict] = []
         self.suggestions: List[str] = []
-        self.secret_refs: Dict[str, str] = {}
+        self.secret_refs: List[tuple] = []  # (name, file)
         self.automation_ids: Dict[str, str] = {}
         self.config_root: Optional[Path] = None
 
@@ -61,10 +75,23 @@ class HAConfigChecker:
 
         return {"error": f"Invalid path: {path}"}
 
+    def _rel(self, path) -> str:
+        """Path relative to the config folder, so two automations.yaml are never confused."""
+        try:
+            return str(Path(path).resolve().relative_to(self.config_root.resolve()))
+        except (ValueError, AttributeError):
+            return str(path)
+
     def _check_directory(self, directory: Path) -> dict:
         """Check all YAML files in a directory (skips .storage, custom_components, www...)."""
-        self.config_root = directory
-        yaml_files = list(iter_yaml_files(directory))
+        self.config_root = find_config_root(directory) or directory
+        loaded = None if self.include_unloaded else loaded_files(self.config_root)
+        yaml_files = []
+        for f in iter_yaml_files(directory):
+            if is_unloaded(f, self.config_root, loaded):
+                self.not_loaded.append(self._rel(f))
+            else:
+                yaml_files.append(f)
 
         if not yaml_files:
             return {"error": f"No YAML files found in {directory}"}
@@ -81,35 +108,46 @@ class HAConfigChecker:
 
     def _check_single_file(self, file_path: Path) -> dict:
         """Check a single YAML file."""
-        self.config_root = file_path.parent
+        self.config_root = find_config_root(file_path) or file_path.parent
         self._analyze_file(file_path)
         self._check_secrets_defined()
         return self._generate_report(file_path.parent, (file_path.parent / "configuration.yaml").exists())
 
+    def _secret_names(self, secrets_file: Path) -> Optional[Set[str]]:
+        """Key names only; values are never read out or reported."""
+        cache = self.__dict__.setdefault("_secret_cache", {})
+        if secrets_file not in cache:
+            try:
+                data, _ = load_text(secrets_file.read_text(encoding="utf-8"))
+                cache[secrets_file] = set(map(str, data.keys())) if isinstance(data, dict) else set()
+            except Exception:
+                cache[secrets_file] = None
+        return cache[secrets_file]
+
     def _check_secrets_defined(self) -> None:
-        """Report !secret names that secrets.yaml does not define. Values are never read out."""
-        if not self.secret_refs or self.config_root is None:
-            return
-        secrets_file = self.config_root / "secrets.yaml"
-        if not secrets_file.exists():
-            self.issues.append({
-                "file": str(secrets_file),
-                "type": "missing_secrets_file",
-                "message": f"{len(self.secret_refs)} !secret references but no secrets.yaml next to the config",
-            })
-            return
-        try:
-            data, _ = load_text(secrets_file.read_text(encoding="utf-8"))
-        except Exception:
-            self.suggestions.append("secrets.yaml could not be read; skipped the secret check")
-            return
-        defined = set(data.keys()) if isinstance(data, dict) else set()
-        for name, where in sorted(self.secret_refs.items()):
-            if name not in defined:
+        """Report !secret names that no reachable secrets.yaml defines."""
+        reported = set()
+        for name, where in self.secret_refs:
+            files = secrets_files_for(Path(where), self.config_root)
+            if not files:
+                key = ("nofile", where)
+                if key not in reported:
+                    reported.add(key)
+                    self.issues.append({
+                        "file": self._rel(where),
+                        "type": "missing_secrets_file",
+                        "message": "uses !secret but there is no secrets.yaml next to it or in a parent folder",
+                    })
+                continue
+            names = [self._secret_names(f) for f in files]
+            if any(n is None for n in names):
+                continue  # unreadable secrets.yaml: do not guess
+            if not any(name in n for n in names) and (name, where) not in reported:
+                reported.add((name, where))
                 self.issues.append({
-                    "file": where,
+                    "file": self._rel(where),
                     "type": "undefined_secret",
-                    "message": f"!secret {name} is not defined in secrets.yaml",
+                    "message": f"!secret {name} is not defined in {', '.join(self._rel(f) for f in files)}",
                 })
 
     def _analyze_file(self, file_path: Path) -> None:
@@ -157,51 +195,45 @@ class HAConfigChecker:
         ):
             self._check_scripts(data, file_path)
 
-        # Check for !include directives in raw content
-        self._find_includes(content, file_path)
-
-        # Check for !secret references
-        self._find_secrets(content, file_path)
+        # !include and !secret, from the parsed data (comments never count)
+        self._find_includes(data, file_path)
+        self._find_secrets(data, file_path)
 
         # Analyze structure
         if isinstance(data, dict):
             self._analyze_structure(data, file_path)
 
-    def _find_includes(self, content: str, file_path: Path) -> None:
+    def _find_includes(self, data, file_path: Path) -> None:
         """Find !include directives."""
-        patterns = [
-            (r'!include\s+(\S+)', 'include'),
-            (r'!include_dir_list\s+(\S+)', 'include_dir_list'),
-            (r'!include_dir_named\s+(\S+)', 'include_dir_named'),
-            (r'!include_dir_merge_list\s+(\S+)', 'include_dir_merge_list'),
-            (r'!include_dir_merge_named\s+(\S+)', 'include_dir_merge_named'),
-        ]
-
-        for pattern, include_type in patterns:
-            for match in re.finditer(pattern + r'(?=\s|$)', content):
-                target = match.group(1).strip("'\"")
-                self.includes_found.append({
-                    "file": str(file_path),
-                    "type": include_type,
-                    "target": target
+        for tag in iter_tags(data):
+            include_type = tag.tag
+            if not include_type.startswith("include"):
+                continue
+            target = str(tag).strip()
+            self.includes_found.append({
+                "file": str(file_path),
+                "type": include_type,
+                "target": target
+            })
+            resolved = (file_path.parent / target)
+            if not resolved.exists() and include_type != "include":
+                self.suggestions.append(
+                    f"{self._rel(file_path)}: !{include_type} {target} points to a folder that does not exist (HA treats it as empty)"
+                )
+            elif not resolved.exists():
+                self.issues.append({
+                    "file": self._rel(file_path),
+                    "type": "missing_include",
+                    "message": f"!{include_type} {target}: not found (relative to {file_path.parent.name or '.'}/)",
                 })
-                resolved = (file_path.parent / target)
-                if not resolved.exists() and include_type != "include":
-                    self.suggestions.append(
-                        f"{file_path.name}: !{include_type} {target} points to a folder that does not exist (HA treats it as empty)"
-                    )
-                elif not resolved.exists():
-                    self.issues.append({
-                        "file": str(file_path),
-                        "type": "missing_include",
-                        "message": f"!{include_type} {target}: not found (relative to {file_path.parent.name or '.'}/)",
-                    })
 
-    def _find_secrets(self, content: str, file_path: Path) -> None:
+    def _find_secrets(self, data, file_path: Path) -> None:
         """Find !secret references."""
-        for match in re.finditer(r'!secret\s+([A-Za-z0-9_\-]+)', content):
-            self.secrets_used.add(match.group(1))
-            self.secret_refs.setdefault(match.group(1), str(file_path))
+        for tag in iter_tags(data):
+            if tag.tag == "secret":
+                name = str(tag).strip()
+                self.secrets_used.add(name)
+                self.secret_refs.append((name, str(file_path)))
 
     def _analyze_structure(self, data: dict, file_path: Path) -> None:
         """Analyze configuration structure."""
@@ -253,10 +285,10 @@ class HAConfigChecker:
             # Duplicate ids break the UI editor and traces
             aid = automation.get("id")
             if aid is not None:
-                where = f"{file_path.name}#{i+1}"
+                where = f"{self._rel(file_path)} (automation #{i+1})"
                 if str(aid) in self.automation_ids:
                     self.issues.append({
-                        "file": str(file_path),
+                        "file": self._rel(file_path),
                         "type": "duplicate_automation_id",
                         "message": f"Automation id '{aid}' is also used in {self.automation_ids[str(aid)]}",
                     })
@@ -305,6 +337,11 @@ class HAConfigChecker:
                 "includes_found": len(self.includes_found),
                 "issues_found": len(self.issues)
             },
+            "not_loaded": {
+                "count": len(self.not_loaded),
+                "files": self.not_loaded[:20],
+                "note": "Not loaded by configuration.yaml, so skipped. Use --include-unloaded to check them too.",
+            } if self.not_loaded else None,
             "issues": self.issues if self.issues else None,
             "suggestions": self.suggestions if self.suggestions else None
         }
@@ -342,7 +379,7 @@ def main():
     path = sys.argv[1]
     verbose = "--verbose" in sys.argv or "-v" in sys.argv
 
-    checker = HAConfigChecker(verbose=verbose)
+    checker = HAConfigChecker(verbose=verbose, include_unloaded="--include-unloaded" in sys.argv)
     result = checker.check_path(path)
 
     print(json.dumps(result, indent=2))

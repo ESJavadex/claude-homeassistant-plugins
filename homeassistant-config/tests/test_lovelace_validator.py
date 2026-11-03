@@ -268,3 +268,35 @@ class Examples(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CustomCardsAndRegistries(unittest.TestCase):
+    def test_custom_card_options_are_not_checked_as_builtin(self):
+        r = run_text(textwrap.dedent("""\
+            type: vertical-stack
+            cards:
+              - type: custom:pi-hole
+                entity: sensor.pihole
+                features: [disable_group_pausing]
+              - type: custom:plotly-graph
+                entities:
+                  - entity: ''
+                    x: $ex [1, 2]
+              - type: custom:stack-in-card
+                cards:
+                  - type: tile
+                    entity: Not An Entity
+        """))
+        self.assertEqual(messages(r, "error"), [])
+        warnings = messages(r, "warning")
+        self.assertFalse([w for w in warnings if "feature" in w or "''" in w], warnings)
+        # cards nested in a custom card are still checked
+        self.assertTrue([w for w in warnings if "Not An Entity" in w], warnings)
+
+    def test_registry_files_are_skipped(self):
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / "lovelace_dashboards"
+            f.write_text(json.dumps({"version": 1, "key": "lovelace_dashboards", "data": {"items": [{"id": "x"}]}}))
+            r = LovelaceValidator().validate_file(str(f))
+            self.assertTrue(r["valid"])
+            self.assertIn("skipped", r)

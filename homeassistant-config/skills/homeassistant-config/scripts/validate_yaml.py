@@ -4,10 +4,19 @@ Home Assistant YAML validator (rules up to Home Assistant 2026.11).
 
 Usage:
   python3 validate_yaml.py <file-or-directory> [more paths...] [--strict] [--all] [--quiet]
+                           [--include-unloaded] [--ha-version=2026.10]
 
-  --strict   warnings also make the run fail
-  --all      apply Home Assistant rules even if the file does not look like HA config
-  --quiet    print only files that have findings (directory mode)
+  --strict            warnings also make the run fail
+  --all               apply Home Assistant rules even if the file does not look like HA config
+  --quiet             print only files that have findings (directory mode)
+  --include-unloaded  also check files that configuration.yaml never loads
+                      (archive or draft folders are skipped by default)
+  --ha-version=X      check against this release instead of the installed one
+
+Version: rules are compared with the Home Assistant release that runs the
+config (`.HA_VERSION` in the config folder, or the HA_VERSION variable). A rule
+from a newer release is reported under "upcoming" (it will matter when you
+update), not as an error.
 
 What it checks
   * YAML syntax with Home Assistant tags (!include, !secret, !input, !env_var...)
@@ -16,9 +25,10 @@ What it checks
     accepted (info), with the release where it changed.
 
 Levels
-  error    will not work on current Home Assistant
-  warning  deprecated or ignored; will break or already does nothing
-  info     old style that still works; modernise when you touch it
+  error     will not work on the installed Home Assistant
+  warning   deprecated or ignored; will break or already does nothing
+  info      old style that still works; modernise when you touch it
+  upcoming  fine on the installed release, changes in a newer one
 
 Output: JSON. Exit code 0 when valid, 1 otherwise.
 """
@@ -33,10 +43,17 @@ from typing import Any, List, Optional, Sequence
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ha_yaml import (  # noqa: E402
+    RULES_CURRENT_TO,
     HATag,
+    ensure_yaml,
+    find_config_root,
+    installed_version,
+    is_unloaded,
     iter_yaml_files,
     line_of,
     load_text,
+    loaded_files,
+    parse_version,
     require_yaml,
 )
 
@@ -97,6 +114,8 @@ BOOL_LINE = re.compile(
     re.IGNORECASE,
 )
 ENTITY_ID = re.compile(r"^[a-z0-9_]+\.[a-z0-9_]+$")
+# The UI editor writes entity registry IDs (32 hex chars) in device triggers/actions.
+REGISTRY_ID = re.compile(r"^[0-9a-f]{32}$")
 ACTION_ID = re.compile(r"^[a-z0-9_]+\.[a-z0-9_]+$")
 HA_TOP_KEYS = {
     "homeassistant", "automation", "script", "scene", "template", "sensor",
@@ -116,9 +135,11 @@ def _is_template(value: Any) -> bool:
 class HAYamlValidator:
     """Validate one Home Assistant YAML file."""
 
-    def __init__(self, strict: bool = False, ha_rules: Optional[bool] = None):
+    def __init__(self, strict: bool = False, ha_rules: Optional[bool] = None,
+                 ha_version: Optional[str] = "auto"):
         self.strict = strict
         self.ha_rules = ha_rules  # None = auto-detect
+        self.ha_version = ha_version  # "auto" = read .HA_VERSION next to the config, None = unknown
         self.findings: List[dict] = []
 
     # ------------------------------------------------------------------ api
@@ -136,7 +157,7 @@ class HAYamlValidator:
         self.findings = []
         for i, line in enumerate(content.splitlines(), 1):
             if "\t" in line[: len(line) - len(line.lstrip(" \t"))]:
-                self._add("error", i, "", "Tab used for indentation (Home Assistant needs spaces)")
+                self._add("error", i, "", "Tab used for indentation (Home Assistant needs spaces)", kind="yaml")
 
         try:
             data, duplicates = load_text(content)
@@ -146,7 +167,7 @@ class HAYamlValidator:
             return self._result(path, None, syntax_error=msg, line=int(m.group(1)) if m else None)
 
         for key, line in duplicates:
-            self._add("error", line, key, f"Duplicate key '{key}': only the last one is used")
+            self._add("error", line, key, f"Duplicate key '{key}': only the last one is used", kind="yaml")
 
         apply = self.ha_rules if self.ha_rules is not None else looks_like_ha(path, data)
         if apply:
@@ -158,13 +179,16 @@ class HAYamlValidator:
         return self._result(path, data, ha_rules=apply)
 
     # -------------------------------------------------------------- helpers
-    def _add(self, level: str, line: int, path: str, message: str, since: Optional[str] = None):
+    def _add(self, level: str, line: int, path: str, message: str, since: Optional[str] = None,
+             kind: str = "ha"):
+        """kind: "yaml" = the file itself is broken (certain); "ha" = a Home Assistant rule."""
         self.findings.append({
             "level": level,
             "line": line or None,
             "path": path,
             "message": message,
             "since": since,
+            "kind": kind,
         })
 
     def _result(self, path: Path, data: Any, syntax_error: Optional[str] = None,
@@ -175,18 +199,31 @@ class HAYamlValidator:
             since = f" [HA {f['since']}]" if f.get("since") else ""
             return f"{where}{at}{f['message']}{since}"
 
+        version = installed_version(path) if self.ha_version == "auto" else self.ha_version
+        running = parse_version(version)
+        for f in self.findings:
+            since = parse_version(f.get("since"))
+            f["upcoming"] = bool(running and since and since > running)
+
         self.findings.sort(key=lambda f: (f["line"] or 0))
-        errors = [fmt(f) for f in self.findings if f["level"] == "error"]
-        warnings = [fmt(f) for f in self.findings if f["level"] == "warning"]
-        info = [fmt(f) for f in self.findings if f["level"] == "info"]
+        current = [f for f in self.findings if not f["upcoming"]]
+        errors = [fmt(f) for f in current if f["level"] == "error"]
+        warnings = [fmt(f) for f in current if f["level"] == "warning"]
+        info = [fmt(f) for f in current if f["level"] == "info"]
+        upcoming = [fmt(f) for f in self.findings if f["upcoming"] and f["level"] != "info"]
         result = {
             "file": str(path),
             "ha_rules": ha_rules,
+            "ha_version": version,
             "errors": errors,
             "warnings": warnings,
             "info": info,
+            "upcoming": upcoming,
             "findings": self.findings,
         }
+        note = rules_note(version)
+        if note:
+            result["note"] = note
         if syntax_error:
             result.update({"valid": False, "error": "YAML syntax error", "details": syntax_error, "line": line})
             return result
@@ -269,12 +306,13 @@ class HAYamlValidator:
         if parent == "target" and len(ancestors) >= 2 and ancestors[-2] == "selector" and "device" in d:
             self._add("error", line, path, "Target selectors no longer accept a `device:` filter (validation fails)", "2026.11")
 
-        # --- collapsed blueprint sections need defaults
+        # --- collapsed blueprint sections: inputs without a default are easy to miss
         if d.get("collapsed") is True and isinstance(d.get("input"), dict):
             for name, spec in d["input"].items():
                 if isinstance(spec, dict) and "default" not in spec:
-                    self._add("error", line_of(spec) or line, f"{path}.input.{name}",
-                              "Every input in a collapsed section needs a `default`", "2024.6")
+                    self._add("info", line_of(spec) or line, f"{path}.input.{name}",
+                              "Input in a collapsed section has no `default`: users only see it if they "
+                              "expand the section. Add a default or leave the section expanded", "2024.6")
 
         # --- legacy device tracker platforms
         if parent == "device_tracker" and isinstance(d.get("platform"), str):
@@ -285,7 +323,7 @@ class HAYamlValidator:
         eid = d.get("entity_id")
         for value in (eid if isinstance(eid, list) else [eid]):
             if isinstance(value, str) and not isinstance(value, HATag) and not _is_template(value):
-                if value not in ("all", "none") and not ENTITY_ID.match(value):
+                if value not in ("all", "none") and not ENTITY_ID.match(value) and not REGISTRY_ID.match(value):
                     self._add("warning", line, f"{path}.entity_id", f"'{value}' is not a valid entity_id (domain.object_id, lowercase)")
 
     def _check_trigger(self, d: dict, path: str, line: int):
@@ -431,7 +469,17 @@ def looks_like_ha(path: Path, data: Any) -> bool:
     return False
 
 
+def rules_note(version: Optional[str]) -> Optional[str]:
+    """A warning when Home Assistant is newer than what these rules know about."""
+    running, known = parse_version(version), parse_version(RULES_CURRENT_TO)
+    if running and known and running > known:
+        return (f"These rules cover Home Assistant up to {RULES_CURRENT_TO}; this install runs {version}. "
+                "Changes after that are not checked: read the release notes and Settings > Repairs.")
+    return None
+
+
 def main(argv: List[str]) -> int:
+    ensure_yaml()
     missing = require_yaml()
     if missing:
         print(json.dumps({"valid": False, "error": missing}))
@@ -443,13 +491,24 @@ def main(argv: List[str]) -> int:
     strict = "--strict" in argv
     force = True if "--all" in argv else None
     quiet = "--quiet" in argv
+    include_unloaded = "--include-unloaded" in argv
+    version_arg = next((a.split("=", 1)[1] for a in argv if a.startswith("--ha-version=")), "auto")
 
     targets = []
+    not_loaded: List[str] = []
     for a in args:
-        targets.extend(iter_yaml_files(Path(a)))
+        root = find_config_root(Path(a)) if Path(a).is_dir() else None
+        loaded = loaded_files(root) if root and not include_unloaded else None
+        for f in iter_yaml_files(Path(a)):
+            if f.name == "secrets.yaml" and Path(a).is_dir():
+                continue  # a syntax error message would quote the line, value included
+            if root and is_unloaded(f, root, loaded):
+                not_loaded.append(str(f))
+            else:
+                targets.append(f)
     results = []
     for f in targets:
-        r = HAYamlValidator(strict=strict, ha_rules=force).validate_file(str(f))
+        r = HAYamlValidator(strict=strict, ha_rules=force, ha_version=version_arg).validate_file(str(f))
         results.append(r)
 
     if len(results) == 1 and Path(args[0]).is_file():
@@ -457,17 +516,33 @@ def main(argv: List[str]) -> int:
         print(json.dumps(out, indent=2, ensure_ascii=False))
         return 0 if out.get("valid") else 1
 
-    shown = [r for r in results if not quiet or r.get("errors") or r.get("warnings") or r.get("info") or r.get("error")]
+    version = results[0].get("ha_version") if results else None
     summary = {
         "files": len(results),
+        "ha_version": version or "unknown (no .HA_VERSION; every rule applied)",
+        "rules_current_to": RULES_CURRENT_TO,
         "valid": all(r.get("valid") for r in results),
         "errors": sum(len(r.get("errors") or []) + (1 if r.get("error") else 0) for r in results),
         "warnings": sum(len(r.get("warnings") or []) for r in results),
         "info": sum(len(r.get("info") or []) for r in results),
+        "upcoming": sum(len(r.get("upcoming") or []) for r in results),
     }
+    if not_loaded:
+        summary["not_loaded"] = {
+            "count": len(not_loaded),
+            "files": not_loaded[:20],
+            "note": "Not loaded by configuration.yaml (no !include reaches them), so skipped. "
+                    "Use --include-unloaded to check them too.",
+        }
+    if rules_note(version):
+        summary["note"] = rules_note(version)
+    shown = [r for r in results if not quiet or r.get("errors") or r.get("warnings") or r.get("info")
+             or r.get("upcoming") or r.get("error")]
     for r in shown:
         r.pop("findings", None)
         r.pop("keys", None)
+        r.pop("ha_version", None)
+        r.pop("note", None)
     print(json.dumps({"summary": summary, "results": shown}, indent=2, ensure_ascii=False))
     return 0 if summary["valid"] else 1
 
