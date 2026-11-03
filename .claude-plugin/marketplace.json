@@ -11,7 +11,7 @@
       "name": "homeassistant-config",
       "source": "./homeassistant-config",
       "description": "Write, check and modernise Home Assistant YAML (automations, scripts, templates, blueprints, dashboards) with the syntax of Home Assistant 2026",
-      "version": "2.0.0",
+      "version": "2.0.1",
       "category": "home-automation",
       "tags": ["home-assistant", "yaml", "automation", "dashboard", "smart-home"]
     }

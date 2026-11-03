@@ -111,6 +111,37 @@ class LegacyConfigTests(unittest.TestCase):
         self.assertTrue(all(x["line"] for x in self.f), self.f)
 
 
+CARD_SNIPPET = """\
+type: vertical-stack
+cards:
+  - type: button
+    entity: script.play_sound
+    tap_action:
+      action: call-service
+      service: script.play_sound
+"""
+
+
+class DashboardSnippetTests(unittest.TestCase):
+    def test_card_snippet_in_config_folder_is_not_an_automation(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "configuration.yaml").write_text("default_config:\n")
+            p = Path(d) / "sound_card.yaml"
+            p.write_text(CARD_SNIPPET)
+            r = HAYamlValidator().validate_file(str(p))
+            self.assertTrue(r["dashboard"])
+            self.assertFalse(r["ha_rules"])
+            self.assertEqual(r["errors"], [])
+
+    def test_mixed_keys_need_two_action_names(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "automations.yaml"
+            p.write_text("- id: a\n  triggers: []\n  actions:\n    - service: light.turn_on\n      action: light.turn_off\n")
+            self.assertTrue(any("both 'service' and 'action'" in m for m in messages(p, "error")))
+
+
 class FileProblemTests(unittest.TestCase):
     def test_duplicate_top_level_key(self):
         self.assertTrue(any("Duplicate key 'automation'" in m for m in messages(FIXTURES / "dupes.yaml", "error")))

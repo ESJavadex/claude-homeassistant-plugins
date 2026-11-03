@@ -76,7 +76,7 @@ def main() -> int:
     warnings = result.get("warnings") or []
 
     # Dashboards get the dashboard rules too (syntax is already covered above).
-    if not result.get("error") and is_dashboard(path, result.get("keys")):
+    if not result.get("error") and (result.get("dashboard") or is_dashboard(path, result.get("keys"))):
         try:
             from lovelace_validator import LovelaceValidator  # noqa: E402
             dash = LovelaceValidator().validate_file(str(path))

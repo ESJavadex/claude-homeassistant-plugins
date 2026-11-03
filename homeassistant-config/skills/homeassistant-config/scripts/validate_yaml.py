@@ -194,6 +194,7 @@ class HAYamlValidator:
         result["valid"] = valid
         if isinstance(data, dict):
             result["keys"] = [str(k) for k in data.keys()]
+        result["dashboard"] = is_dashboard_data(data)
         return result
 
     def _check_bool_lines(self, content: str):
@@ -339,7 +340,7 @@ class HAYamlValidator:
         action = d.get("action")
         is_old = isinstance(service, str) and (ACTION_ID.match(service) or _is_template(service))
         is_new = isinstance(action, str) and (ACTION_ID.match(action) or _is_template(action))
-        if is_old and "action" in d:
+        if is_old and is_new:
             self._add("error", line, path, "Step has both 'service' and 'action'; keep only 'action'", "2024.8")
         elif is_old:
             self._add("info", line, path, f"`service: {service}` still works, but the current key is `action:`", "2024.8")
@@ -383,6 +384,20 @@ class HAYamlValidator:
                 self._add("warning", line_of(item), "notify", "`platform: telegram` notify is removed; use the Telegram bot notify entities", "2026.11")
 
 
+CARD_HINTS = {"cards", "card", "entity", "entities", "tap_action", "features", "badges", "sections"}
+
+
+def is_dashboard_data(data: Any) -> bool:
+    """A dashboard, a view, a card, or a list of cards (snippets people keep in /config)."""
+    if isinstance(data, dict):
+        if "views" in data:
+            return True
+        return isinstance(data.get("type"), str) and bool(CARD_HINTS & set(map(str, data.keys())))
+    if isinstance(data, list) and data and all(isinstance(x, dict) for x in data):
+        return all(isinstance(x.get("type"), str) and not ("triggers" in x or "trigger" in x) for x in data)
+    return False
+
+
 def looks_like_ha(path: Path, data: Any) -> bool:
     """Heuristic: is this file Home Assistant config (not ESPHome, CI, compose...)?"""
     parts = [p.lower() for p in Path(path).resolve().parts]
@@ -390,8 +405,8 @@ def looks_like_ha(path: Path, data: Any) -> bool:
         return False
     if isinstance(data, dict) and ("esphome" in data or "substitutions" in data and "esphome" in str(data)):
         return False
-    if isinstance(data, dict) and ("views" in data or "services" in data and "version" in data):
-        return False  # dashboard (separate validator) or docker-compose
+    if is_dashboard_data(data) or (isinstance(data, dict) and "services" in data and "version" in data):
+        return False  # dashboard or card (lovelace_validator.py) or docker-compose
     if "blueprints" in parts:
         return True
     if len(parts) > 1 and parts[1] in ("config", "homeassistant"):
