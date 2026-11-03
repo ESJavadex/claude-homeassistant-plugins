@@ -18,7 +18,7 @@ from collections import defaultdict
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ha_yaml import (  # noqa: E402
-    ensure_yaml, find_config_root, is_unloaded, iter_yaml_files, load_text, loaded_files, require_yaml,
+    ensure_yaml, find_config_root, is_unloaded, iter_yaml_files, load_text, loaded_files, redact, require_yaml,
 )
 
 ensure_yaml()
@@ -107,7 +107,7 @@ class DuplicateFinder:
         except Exception as e:
             self.errors.append({
                 "file": str(file_path),
-                "error": f"YAML parse error: {e}"
+                "error": f"YAML parse error: {redact(str(e))}"
             })
             return
 

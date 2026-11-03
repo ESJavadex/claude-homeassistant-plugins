@@ -47,6 +47,15 @@ def emit_context(text: str) -> None:
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": text}}))
 
 
+def mask(text: str) -> str:
+    """Credential values never go back to Claude (ESPHome keeps passwords in plain text)."""
+    try:
+        from ha_yaml import redact
+        return redact(text)
+    except Exception:
+        return text
+
+
 def main() -> int:
     plugin_root = Path(os.environ.get("CLAUDE_PLUGIN_ROOT") or Path(__file__).resolve().parent.parent)
     sys.path.insert(0, str(plugin_root / "skills" / "homeassistant-config" / "scripts"))
@@ -114,7 +123,7 @@ def main() -> int:
         # back to Claude so it repairs the file in the same turn.
         print(json.dumps({
             "decision": "block",
-            "reason": "\n".join(lines),
+            "reason": mask("\n".join(lines)),
             "hookSpecificOutput": {"hookEventName": "PostToolUse"},
         }))
         return 0
@@ -140,7 +149,7 @@ def main() -> int:
         lines.append(result["note"])
     lines.append("Fix what applies unless the user asked to keep it. If `ha core check` or "
                  "Settings > Repairs disagree with this check, they are right.")
-    emit_context("\n".join(lines))
+    emit_context(mask("\n".join(lines)))
     return 0
 
 

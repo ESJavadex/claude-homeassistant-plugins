@@ -3,7 +3,7 @@ name: ha-upgrade
 description: Modernise a Home Assistant config to current syntax — legacy template entities, removed light color_temp/kelvin, renamed purpose-specific triggers, service→action, platform→trigger, plural keys, call-service→perform-action, layout_options→grid_options, lovelace mode yaml. Use when the user asks to upgrade, migrate, modernise or clean up old YAML, or after a release removed something they use.
 argument-hint: "[file or folder, default /config]"
 disable-model-invocation: true
-allowed-tools: Bash(python3 *), Bash(cp *), Bash(ha core check*), Read, Edit, Grep, Glob
+allowed-tools: Bash(python3 *), Bash(cp *), Bash(mkdir *), Bash(git -C * status*), Bash(git -C * rev-parse*), Bash(ha core check*), Read, Edit, Grep, Glob
 ---
 
 # Upgrade Home Assistant YAML to current syntax
@@ -25,10 +25,27 @@ Target: `$ARGUMENTS`, or `/config`.
    - then warnings (deprecated, ignored, about to break);
    - info last (`service:` → `action:`, `platform:` → `trigger:`, plural keys):
      purely cosmetic, only if the user wants it.
+   **Imported blueprints** (the validator counts them under
+   `imported_blueprints`, they have a `source_url`) are left alone: they are
+   updated by re-importing a newer version (Settings > Blueprints > Re-import),
+   and an edit would be lost on the next re-import. Mention them, don't edit
+   them, unless the user asks. The user's own blueprints are upgraded like any
+   other file.
    Ask which levels to apply. Stop here until they answer.
-3. **Back up** every file you will edit:
-   `cp FILE FILE.bak-$(date +%Y%m%d-%H%M)`.
-4. **Migrate** with targeted edits, keeping comments, order and formatting.
+3. **Back up** every file you will edit, without leaving copies where they
+   get picked up:
+   - If the config folder is a git repository
+     (`git -C /config rev-parse --is-inside-work-tree`), git is the backup:
+     check `git -C /config status --short`. If the files you will touch have
+     uncommitted changes, ask the user to commit them first. Make no `.bak`
+     files there: a nightly `git add .` would commit them.
+   - Otherwise copy them to one folder outside the files Home Assistant reads:
+     `mkdir -p /config/.claude-backups/$(date +%Y%m%d-%H%M)` and `cp` each file
+     there, keeping its relative path.
+4. **Migrate** with the Edit tool: targeted edits, keeping comments, order and
+   formatting. Never rewrite a file through a script (`yaml.safe_load` +
+   `yaml.dump`, sed over the whole file): that drops comments and `!include`
+   / `!secret` tags, and a script that fails halfway leaves the file empty.
    Read `references/templates.md` (legacy → modern template table) and
    `references/patterns.md` (renamed triggers) from the homeassistant-config
    skill first. Rules:
@@ -44,4 +61,5 @@ Target: `$ARGUMENTS`, or `/config`.
    zero for the levels you applied), then `ha core check` if available, then
    reload (`automation.reload`, `script.reload`, `template.reload`) or ask the
    user to restart when templates moved between domains.
-6. **Report** what changed per file and where the backups are.
+6. **Report** what changed per file, where the backups are (or the git
+   commit to go back to), and which imported blueprints were left alone.

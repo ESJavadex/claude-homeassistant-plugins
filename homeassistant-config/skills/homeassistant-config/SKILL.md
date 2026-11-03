@@ -24,7 +24,11 @@ the result before telling the user it is done.
    states and Repairs. Otherwise, in the add-on:
    `curl -s -H "Authorization: Bearer $SUPERVISOR_TOKEN" http://supervisor/core/api/states | jq -r '.[].entity_id'`.
    Or ask. Never invent entity IDs.
-4. **Back up** a file before rewriting it (`cp automations.yaml automations.yaml.bak-$(date +%Y%m%d-%H%M)`).
+4. **Back up** a file before rewriting it. If the config folder is a git
+   repository (`git -C /config rev-parse --is-inside-work-tree`), git is the
+   backup: make sure the file has no uncommitted changes, and don't leave
+   `.bak` files there (a nightly `git add .` commits them). Otherwise copy it
+   to `/config/.claude-backups/<date>/`.
 
 ## 2. Rules for current syntax
 
@@ -57,6 +61,12 @@ Hard rules:
 - Some things are UI-only now. `http:` is imported into the UI once (2026.8)
   and later YAML edits are ignored; many integrations can no longer be set up in
   YAML. Check the integration's docs page before writing YAML for it.
+- Edit YAML with the Edit tool, in small exact replacements. Never rewrite a
+  file through a script (`yaml.safe_load` + `yaml.dump`): it drops comments
+  and `!include` / `!secret` tags, and a script that fails halfway (no
+  PyYAML, a tag it can't parse) leaves the file empty.
+- Imported blueprints (with `source_url`) are updated by re-importing them,
+  not by editing; leave them alone unless the user asks.
 - Don't edit files in `.storage/` while Home Assistant runs. Never print or
   copy the contents of `secrets.yaml`; refer to `!secret name` only.
 - Don't rewrite a user's whole file just to modernise style. Old keys like

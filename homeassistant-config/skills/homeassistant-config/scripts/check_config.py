@@ -24,7 +24,7 @@ from typing import Dict, List, Set, Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ha_yaml import (  # noqa: E402
     ensure_yaml, find_config_root, is_unloaded, iter_tags, iter_yaml_files,
-    load_text, loaded_files, require_yaml, resolve_include, secrets_files_for,
+    load_text, loaded_files, redact, require_yaml, resolve_include, secrets_files_for,
 )
 
 ensure_yaml()
@@ -172,13 +172,13 @@ class HAConfigChecker:
                 self.issues.append({
                     "file": str(file_path),
                     "type": "syntax_error",
-                    "message": str(e)
+                    "message": redact(str(e))
                 })
                 return
             self.issues.append({
                 "file": str(file_path),
                 "type": "read_error",
-                "message": str(e)
+                "message": redact(str(e))
             })
             return
 
