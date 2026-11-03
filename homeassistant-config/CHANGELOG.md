@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.0.1 (2026-11-03)
+
+- Dashboard and card snippets kept as YAML files in the config folder (a
+  `type:` with `cards:`, `entity:`... or a list of cards) are now checked with
+  the dashboard rules, not as automations. A card `tap_action` with
+  `action: call-service` + `service:` was reported as "Step has both 'service'
+  and 'action'". Found on a real install.
+- Mixing `service:` and `action:` is only an error when both name an action.
+
 ## 2.0.0 (2026-11-03)
 
 Updated for Home Assistant 2026 (rules up to 2026.11) and the current Claude

@@ -11,7 +11,7 @@ configs.
 
 | Plugin | What it does | Version |
 |--------|--------------|---------|
-| [homeassistant-config](./homeassistant-config) | Write, check and modernise HA YAML: automations, scripts, templates, blueprints, dashboards | 2.0.0 |
+| [homeassistant-config](./homeassistant-config) | Write, check and modernise HA YAML: automations, scripts, templates, blueprints, dashboards | 2.0.1 |
 
 ## Install
 

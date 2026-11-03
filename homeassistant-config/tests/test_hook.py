@@ -92,6 +92,16 @@ class HookTests(unittest.TestCase):
         ctx = json.loads(out)["hookSpecificOutput"]["additionalContext"]
         self.assertIn("call-service", ctx)
 
+    def test_card_snippet_gets_dashboard_rules_not_automation_errors(self):
+        self.write("sound_card.yaml", (
+            "type: vertical-stack\ncards:\n  - type: button\n    entity: script.x\n    tap_action:\n"
+            "      action: call-service\n      service: script.x\n"
+        ))
+        code, out, _ = run_hook(self.event("sound_card.yaml"))
+        payload = json.loads(out)
+        self.assertNotIn("decision", payload)
+        self.assertIn("call-service", payload["hookSpecificOutput"]["additionalContext"])
+
     def test_esphome_template_sensor_is_not_flagged(self):
         (self.root / "esphome").mkdir()
         self.write("esphome/node.yaml", "esphome:\n  name: n\nsensor:\n  - platform: template\n    lambda: !lambda return 1;\n")
