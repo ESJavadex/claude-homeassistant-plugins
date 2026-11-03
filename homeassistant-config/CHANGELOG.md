@@ -1,5 +1,30 @@
 # Changelog
 
+## 2.1.2 (2026-11-03)
+
+False positives found by running the checkers over ten large public configs
+on GitHub (`tests/smoke_public_configs.sh`). Each has a regression test.
+
+- `!include /config/...` (absolute paths) now resolves when the config folder
+  is mounted elsewhere (`/homeassistant`, a git checkout). Before, those
+  includes were "missing" and everything behind them looked "not loaded".
+- Dashboards declared in an included `lovelace.yaml` and lovelace_gen
+  includes (`!include [file, {vars}]`) count as loaded.
+- `<<: !include common.yaml` (ESPHome packages) no longer reads as a syntax error.
+- Integration triggers that take a bare `entity_id` (`webostv.turn_on`,
+  `samsungtv.turn_on`, `philips_js.turn_on`, `lg_netcast.turn_on`) are not
+  purpose-specific triggers.
+- `state: on` inside a scene is fine (scenes turn booleans into on/off); the
+  warning stays for triggers and conditions.
+- Entity IDs: uppercase is accepted (Home Assistant lowercases them), and
+  button-card JavaScript (`[[[ ]]]`) and wildcards (`light.*`) are skipped.
+- lovelace_gen files (`# lovelace_gen`, Jinja) are skipped: not YAML until rendered.
+- No `secrets.yaml` at all: one issue instead of one per file.
+- Duplicates: blueprint automations compare by blueprint and inputs (they all
+  looked identical), scripts with the same sequence but different
+  `variables` are not duplicates, and trigger-based template entities are not
+  automations.
+
 ## 2.1.1 (2026-11-03)
 
 - The PyYAML fallback now works with a real venv. A venv's `python3` is a

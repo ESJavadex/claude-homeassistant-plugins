@@ -24,7 +24,7 @@ from typing import Dict, List, Set, Optional
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ha_yaml import (  # noqa: E402
     ensure_yaml, find_config_root, is_unloaded, iter_tags, iter_yaml_files,
-    load_text, loaded_files, require_yaml, secrets_files_for,
+    load_text, loaded_files, require_yaml, resolve_include, secrets_files_for,
 )
 
 ensure_yaml()
@@ -127,17 +127,17 @@ class HAConfigChecker:
     def _check_secrets_defined(self) -> None:
         """Report !secret names that no reachable secrets.yaml defines."""
         reported = set()
+        without_file = sorted({self._rel(w) for n, w in self.secret_refs if not secrets_files_for(Path(w), self.config_root)})
+        if without_file:
+            self.issues.append({
+                "file": without_file[0],
+                "type": "missing_secrets_file",
+                "message": f"{len(without_file)} file(s) use !secret but no secrets.yaml was found next to them "
+                           f"or in a parent folder (e.g. {', '.join(without_file[:3])})",
+            })
         for name, where in self.secret_refs:
             files = secrets_files_for(Path(where), self.config_root)
             if not files:
-                key = ("nofile", where)
-                if key not in reported:
-                    reported.add(key)
-                    self.issues.append({
-                        "file": self._rel(where),
-                        "type": "missing_secrets_file",
-                        "message": "uses !secret but there is no secrets.yaml next to it or in a parent folder",
-                    })
                 continue
             names = [self._secret_names(f) for f in files]
             if any(n is None for n in names):
@@ -156,6 +156,11 @@ class HAConfigChecker:
 
         if file_path.name == "secrets.yaml":
             return  # never parse or report secret values
+        try:
+            if "lovelace_gen" in file_path.read_text(encoding="utf-8").split("\n", 1)[0]:
+                return  # Jinja-preprocessed by lovelace_gen: not YAML until rendered
+        except OSError:
+            pass
         try:
             content = file_path.read_text(encoding='utf-8')
             data, duplicates = load_text(content)
@@ -215,7 +220,7 @@ class HAConfigChecker:
                 "type": include_type,
                 "target": target
             })
-            resolved = (file_path.parent / target)
+            resolved = resolve_include(file_path, target, self.config_root)
             if not resolved.exists() and include_type != "include":
                 self.suggestions.append(
                     f"{self._rel(file_path)}: !{include_type} {target} points to a folder that does not exist (HA treats it as empty)"
@@ -224,7 +229,7 @@ class HAConfigChecker:
                 self.issues.append({
                     "file": self._rel(file_path),
                     "type": "missing_include",
-                    "message": f"!{include_type} {target}: not found (relative to {file_path.parent.name or '.'}/)",
+                    "message": f"!{include_type} {target}: not found ({self._rel(resolved)})",
                 })
 
     def _find_secrets(self, data, file_path: Path) -> None:

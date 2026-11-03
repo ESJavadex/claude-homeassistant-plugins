@@ -45,7 +45,7 @@ automation:
       - condition: climate.target_temperature
     action:
       - service: light.turn_on
-        entity_id: light.Bad_Id
+        entity_id: light.bad-id
         data:
           color_temp: 300
           kelvin: 2700

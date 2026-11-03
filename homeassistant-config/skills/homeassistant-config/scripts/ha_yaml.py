@@ -108,6 +108,15 @@ if yaml is not None:
                 seen[key] = True
             return super().construct_mapping(node, deep=deep)
 
+        def flatten_mapping(self, node):
+            # `<<: !include common.yaml` (ESPHome packages, some HA configs): the
+            # merged file is not loaded here, so drop that merge instead of failing.
+            node.value = [
+                (k, v) for k, v in node.value
+                if not (k.tag == "tag:yaml.org,2002:merge" and v.tag.startswith("!"))
+            ]
+            return super().flatten_mapping(node)
+
     def _construct_tag(loader, tag_suffix, node):
         tag = tag_suffix.lstrip("!")
         if isinstance(node, yaml.ScalarNode):
@@ -261,10 +270,31 @@ def installed_version(path: Path) -> Optional[str]:
 
 # ------------------------------------------------------------ loaded files
 
+def resolve_include(base: Path, target: str, root: Optional[Path]) -> Path:
+    """Where `!include target` in `base` points.
+
+    Relative paths are relative to the including file. Absolute `/config/...`
+    or `/homeassistant/...` paths are mapped onto the config folder when it is
+    mounted somewhere else (add-ons, a git checkout).
+    """
+    t = str(target).strip()
+    p = Path(t)
+    if not p.is_absolute():
+        return Path(base).parent / p
+    if p.exists() or root is None:
+        return p
+    for prefix in ("/config/", "/homeassistant/"):
+        if t.startswith(prefix):
+            return Path(root) / t[len(prefix):]
+    return p
+
+
 def iter_tags(data: Any) -> Iterator[HATag]:
     """Every tagged scalar (`!include x`, `!secret y`...) in parsed data. Comments never get here."""
     if isinstance(data, HATag):
         yield data
+    elif isinstance(data, HATaggedList) and data and isinstance(data[0], str):
+        yield HATag(data[0], data.tag)  # lovelace_gen: !include [file.yaml, {vars}]
     elif isinstance(data, dict):
         for value in data.values():
             yield from iter_tags(value)
@@ -299,12 +329,14 @@ def loaded_files(root: Path) -> Optional[Set[Path]]:
             continue
         for tag in iter_tags(data):
             if tag.tag == "include":
-                stack.append(f.parent / str(tag))
+                stack.append(resolve_include(f, tag, root))
             elif tag.tag.startswith("include_dir_"):
-                d = f.parent / str(tag)
+                d = resolve_include(f, tag, root)
                 if d.is_dir():
                     stack.extend(sorted(p for p in d.rglob("*.yaml") if not p.name.startswith(".")))
         lovelace = data.get("lovelace") if isinstance(data, dict) else None
+        if not isinstance(lovelace, dict) and isinstance(data, dict):
+            lovelace = data  # `lovelace: !include lovelace.yaml`
         dashboards = lovelace.get("dashboards") if isinstance(lovelace, dict) else None
         if isinstance(dashboards, dict):
             for dash in dashboards.values():

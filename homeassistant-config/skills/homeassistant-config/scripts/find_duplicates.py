@@ -27,6 +27,12 @@ if require_yaml():
     sys.exit(1)
 
 
+TEMPLATE_ENTITY_KEYS = {
+    "sensor", "binary_sensor", "button", "number", "select", "image", "weather",
+    "switch", "light", "cover", "fan", "lock", "vacuum", "alarm_control_panel", "event", "update",
+}
+
+
 def canonical(obj):
     """Rewrite old keys to current ones so old and new syntax compare equal.
 
@@ -140,6 +146,8 @@ class DuplicateFinder:
         for idx, automation in enumerate(automations):
             if not isinstance(automation, dict):
                 continue
+            if TEMPLATE_ENTITY_KEYS & set(map(str, automation)):
+                continue  # trigger-based template entity (template: - triggers: ... sensor: ...)
 
             auto_info = {
                 "file": str(file_path),
@@ -149,6 +157,9 @@ class DuplicateFinder:
                 "triggers": self._normalize_triggers(automation),
                 "conditions": self._normalize_conditions(automation),
                 "actions": self._normalize_actions(automation),
+                "variables": canonical(automation.get("variables")),
+                # blueprint automations have no triggers/actions of their own
+                "use_blueprint": canonical(automation.get("use_blueprint")),
                 "entities": self._extract_entity_ids(automation),
                 "raw": automation
             }
@@ -169,6 +180,7 @@ class DuplicateFinder:
                 "script_id": script_id,
                 "alias": script.get("alias", script_id),
                 "sequence": self._normalize_sequence(script),
+                "variables": canonical(script.get("variables")),
                 "entities": self._extract_entity_ids(script),
                 "raw": script
             }
@@ -189,6 +201,7 @@ class DuplicateFinder:
                 "index": idx,
                 "alias": script.get("alias", f"Script #{idx+1}"),
                 "sequence": self._normalize_sequence(script),
+                "variables": canonical(script.get("variables")),
                 "entities": self._extract_entity_ids(script),
                 "raw": script
             }
@@ -274,15 +287,18 @@ class DuplicateFinder:
             hashable = {
                 "triggers": item["triggers"],
                 "conditions": item["conditions"],
-                "actions": item["actions"]
+                "actions": item["actions"],
+                "variables": item.get("variables"),
+                "use_blueprint": item.get("use_blueprint"),
             }
         else:
-            # For scripts
+            # For scripts (same sequence with different variables is not a duplicate)
             hashable = {
-                "sequence": item["sequence"]
+                "sequence": item["sequence"],
+                "variables": item.get("variables"),
             }
 
-        content = json.dumps(hashable, sort_keys=True)
+        content = json.dumps(hashable, sort_keys=True, default=str)
         return hashlib.md5(content.encode()).hexdigest()
 
     def _analyze_duplicates(self) -> dict:
@@ -438,7 +454,13 @@ class DuplicateFinder:
             overlap = len(entities1 & entities2) / max(len(entities1 | entities2), 1)
             parts.append((overlap, 0.35))
 
-        if "triggers" in item1 and "triggers" in item2:
+        bp1, bp2 = item1.get("use_blueprint"), item2.get("use_blueprint")
+        if bp1 or bp2:
+            # Blueprint automations: their logic is the blueprint plus its inputs.
+            same_bp = isinstance(bp1, dict) and isinstance(bp2, dict) and bp1.get("path") == bp2.get("path")
+            logic = self._compare_structures(bp1, bp2) if same_bp else 0.0
+            parts.append((logic, 0.4))
+        elif "triggers" in item1 and "triggers" in item2:
             logic = (self._compare_structures(item1["triggers"], item2["triggers"])
                      + self._compare_structures(item1.get("actions", []), item2.get("actions", []))) / 2
             parts.append((logic, 0.4))
@@ -450,8 +472,8 @@ class DuplicateFinder:
 
     def _compare_structures(self, struct1, struct2) -> float:
         """Compare two structures for similarity."""
-        str1 = json.dumps(struct1, sort_keys=True)
-        str2 = json.dumps(struct2, sort_keys=True)
+        str1 = json.dumps(struct1, sort_keys=True, default=str)
+        str2 = json.dumps(struct2, sort_keys=True, default=str)
         return SequenceMatcher(None, str1, str2).ratio()
 
     def _get_similarity_reason(self, item1: dict, item2: dict) -> str:
