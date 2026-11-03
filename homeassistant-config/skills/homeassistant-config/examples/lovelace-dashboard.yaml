@@ -1,465 +1,471 @@
-# Example Lovelace Dashboard
-# File: ui-lovelace.yaml
-# A complete smart home dashboard with multiple views
+# Example dashboard for Home Assistant 2026.x (sections views only)
+#
+# File: /config/dashboards/home.yaml, registered in configuration.yaml with the
+# current YAML-mode form (top-level `lovelace: mode: yaml` was deprecated in 2026.2):
+#
+#   lovelace:
+#     resource_mode: yaml          # only needed if you load custom cards from YAML
+#     dashboards:
+#       home-yaml:                 # keys other than "lovelace" need a hyphen
+#         mode: yaml
+#         filename: dashboards/home.yaml
+#         title: Home
+#         icon: mdi:home
+#         show_in_sidebar: true
+#
+# The same content can be pasted into a UI dashboard via
+# Edit dashboard > three dots > Raw configuration editor.
+#
+# Choices made here:
+# - Every view sets `type: sections` explicitly. A view with `cards:` and no
+#   type is a masonry view, which is legacy.
+# - Card widths use `grid_options` on a 12-column grid per section
+#   (12 = full width, 6 = half, 4 = third, 3 = quarter). `layout_options` is gone.
+# - Each section starts with a heading card instead of a section `title:`.
+# - Every action that runs something uses `action: perform-action` with
+#   `perform_action`, `target` and `data` (call-service is deprecated since 2024.8).
+# - Tiles with features replace most Mushroom / button-card use cases.
+# - Cards without `name:` show "Device + entity name" since 2026.11. Set `name:`
+#   where the device name would be redundant (e.g. inside a room section).
 
-title: Smart Home
+title: Home
+
 views:
-  # Main Overview
-  - title: Home
-    path: home
+  # ===========================================================================
+  # VIEW 1: Overview
+  # ===========================================================================
+  - title: Overview
+    path: overview
     icon: mdi:home
+    type: sections
+    max_columns: 3                  # sections side by side on wide screens
+    dense_section_placement: true   # fill gaps left by short sections
+
+    # Header above the badges (2025.3). `responsive` puts the card left and the
+    # badges right on wide screens, stacked on phones.
+    header:
+      layout: responsive
+      badges_position: bottom
+      badges_wrap: scroll           # one scrollable row on phones instead of wrapping
+      card:
+        type: markdown
+        text_only: true             # no card background, reads like a page title
+        content: |
+          # Good {{ 'morning' if now().hour < 12 else 'afternoon' if now().hour < 20 else 'evening' }}, {{ user }}
+
+    # View badges: always `type: entity` + show_* options (display_type is gone).
     badges:
-      - entity: person.john
-      - entity: person.jane
-      - entity: sensor.outdoor_temperature
+      - type: entity
+        entity: person.ana
+        show_name: false
+        show_state: true
+        show_icon: true
+      - type: entity
+        entity: person.luis
+        show_name: false
+      - type: entity
+        entity: sensor.outdoor_temperature
         name: Outside
-      - entity: binary_sensor.front_door
-        name: Door
-    cards:
-      # Weather and Quick Actions
-      - type: vertical-stack
-        cards:
-          - type: weather-forecast
-            entity: weather.home
-            show_forecast: true
-            forecast_type: daily
+        color: orange
+        state_content:
+          - state
+          - last_changed
+      # Only shown while the front door is open.
+      - type: entity
+        entity: binary_sensor.front_door
+        color: red
+        visibility:
+          - condition: state
+            entity: binary_sensor.front_door
+            state: "on"
+      # Shortcut badge (2026.5): runs a script without an entity card.
+      - type: shortcut
+        text: Good night
+        icon: mdi:weather-night
+        tap_action:
+          action: perform-action
+          perform_action: script.good_night
+          confirmation:
+            text: Turn everything off for the night?
 
-          - type: horizontal-stack
-            cards:
-              - type: button
-                entity: scene.morning
-                icon: mdi:weather-sunny
-                name: Morning
-                tap_action:
-                  action: call-service
-                  service: scene.turn_on
-                  target:
-                    entity_id: scene.morning
-              - type: button
-                entity: scene.evening
-                icon: mdi:weather-sunset
-                name: Evening
-                tap_action:
-                  action: call-service
-                  service: scene.turn_on
-                  target:
-                    entity_id: scene.evening
-              - type: button
-                entity: scene.night
-                icon: mdi:weather-night
-                name: Night
-                tap_action:
-                  action: call-service
-                  service: scene.turn_on
-                  target:
-                    entity_id: scene.night
-              - type: button
-                entity: script.all_off
-                icon: mdi:power
-                name: All Off
-                tap_action:
-                  action: call-service
-                  service: script.turn_on
-                  target:
-                    entity_id: script.all_off
-
-      # Room Status Cards
+    sections:
+      # -----------------------------------------------------------------------
+      # Living room
+      # -----------------------------------------------------------------------
       - type: grid
-        columns: 2
-        square: false
         cards:
+          - type: heading
+            heading: Living room
+            icon: mdi:sofa
+            tap_action:
+              action: navigate
+              navigation_path: /home-yaml/rooms
+            # Heading badges (not `entities:`). A button badge (2026.2) is a
+            # small action without its own card.
+            badges:
+              - type: entity
+                entity: sensor.living_room_temperature
+              - type: entity
+                entity: sensor.living_room_humidity
+              - type: button
+                icon: mdi:lightbulb-group-off
+                text: All off
+                tap_action:
+                  action: perform-action
+                  perform_action: light.turn_off
+                  target:
+                    area_id: living_room
+
+          # Half-width tiles: two per row.
+          - type: tile
+            entity: light.sofa_lamp
+            name: Sofa lamp
+            grid_options:
+              columns: 6
+            features_position: bottom
+            features:
+              - type: light-brightness
+
+          - type: tile
+            entity: light.ceiling_living_room
+            name: Ceiling
+            grid_options:
+              columns: 6
+            features:
+              - type: light-color-temp
+
+          # Full-width tile with two features: the first one inline, the
+          # rest below (behaviour of `inline` since 2026.9).
+          - type: tile
+            entity: media_player.living_room_tv
+            name: TV
+            grid_options:
+              columns: 12
+            features_position: inline
+            features:
+              - type: media-player-playback
+              - type: media-player-volume-slider
+
+          - type: tile
+            entity: cover.living_room_blinds
+            name: Blinds
+            grid_options:
+              columns: 12
+            features:
+              - type: cover-open-close
+              - type: cover-position
+
+      # -----------------------------------------------------------------------
+      # Climate: thermostat tile with modes and target temperature
+      # -----------------------------------------------------------------------
+      - type: grid
+        cards:
+          - type: heading
+            heading: Climate
+            icon: mdi:thermostat
+          - type: tile
+            entity: climate.living_room
+            name: Heating
+            grid_options:
+              columns: 12
+            features:
+              - type: climate-hvac-modes
+                style: icons
+                hvac_modes:
+                  - heat
+                  - "off"            # quoted: bare off is a boolean in YAML
+              - type: target-temperature
+          - type: tile
+            entity: sensor.living_room_temperature
+            name: Temperature
+            grid_options:
+              columns: 6
+            features:
+              - type: trend-graph
+                hours_to_show: 24
+          - type: tile
+            entity: sensor.living_room_co2
+            name: CO2
+            color: state
+            grid_options:
+              columns: 6
+
+          # Warning shown only when CO2 is high, without a conditional card.
+          - type: markdown
+            content: |
+              **CO2 is {{ states('sensor.living_room_co2') }} ppm.** Open a window.
+            visibility:
+              - condition: numeric_state
+                entity: sensor.living_room_co2
+                above: 1000
+
+      # -----------------------------------------------------------------------
+      # Section strategy: the most used controls, picked by Home Assistant.
+      # Edit it in the UI and "Convert to manual section" to freeze it.
+      # -----------------------------------------------------------------------
+      - strategy:
+          type: common-controls
+          limit: 6
+          exclude_entities:
+            - switch.server_rack
+          heading:
+            type: heading
+            heading: Quick controls
+
+      # -----------------------------------------------------------------------
+      # Security: two columns wide, only for adults, only on wide screens
+      # -----------------------------------------------------------------------
+      - type: grid
+        column_span: 2
+        visibility:
+          - condition: user
+            users:
+              - 581fca7fdc014b8b894519cc531f9a04   # Ana (Settings > People > user id)
+              - 9e1c35a6f3b2484c9d0a7e6f5c4b3a21   # Luis
+        cards:
+          - type: heading
+            heading: Security
+            icon: mdi:shield-home
+          - type: tile
+            entity: alarm_control_panel.home
+            name: Alarm
+            grid_options:
+              columns: 6
+            features:
+              - type: alarm-modes
+                modes:
+                  - armed_home
+                  - armed_away
+                  - disarmed
+          - type: tile
+            entity: lock.front_door
+            name: Front door
+            grid_options:
+              columns: 6
+            features:
+              - type: lock-commands
+          # Camera picture: tap opens more-info, hold opens the camera view.
+          - type: picture-entity
+            entity: camera.front_door
+            name: Front door camera
+            show_state: false
+            grid_options:
+              columns: 12
+              rows: auto
+            hold_action:
+              action: navigate
+              navigation_path: /home-yaml/rooms
+            visibility:
+              - condition: screen
+                media_query: "(min-width: 768px)"
+
+    # Sticky footer card (2026.3): one card, always visible at the bottom.
+    footer:
+      card:
+        type: tile
+        entity: alarm_control_panel.home
+        name: Alarm
+        features_position: inline
+        features:
+          - type: alarm-modes
+            modes:
+              - armed_away
+              - disarmed
+
+  # ===========================================================================
+  # VIEW 2: Rooms (area cards and a device section strategy)
+  # ===========================================================================
+  - title: Rooms
+    path: rooms
+    icon: mdi:floor-plan
+    type: sections
+    max_columns: 4
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Ground floor
+          # Area card (redesigned in 2025.7): display_type replaces show_camera;
+          # tap_action replaces navigation_path; area-controls adds buttons.
           - type: area
             area: living_room
-            display_type: compact
-            navigation_path: /lovelace/living-room
-            sensor_classes:
-              - temperature
-              - humidity
-            alert_classes:
-              - motion
-
-          - type: area
-            area: bedroom
-            display_type: compact
-            navigation_path: /lovelace/bedroom
-            sensor_classes:
-              - temperature
-            alert_classes:
-              - motion
-
+            display_type: picture
+            grid_options:
+              columns: 12
+              rows: 4
+            tap_action:
+              action: navigate
+              navigation_path: /home-yaml/overview
+            features:
+              - type: area-controls
+                controls:
+                  - light
+                  - cover
           - type: area
             area: kitchen
             display_type: compact
-            navigation_path: /lovelace/kitchen
-            sensor_classes:
-              - temperature
-              - humidity
-
-          - type: area
-            area: bathroom
-            display_type: compact
-            navigation_path: /lovelace/bathroom
-            sensor_classes:
-              - humidity
-
-      # Climate Overview
-      - type: thermostat
-        entity: climate.main_thermostat
-        name: Home Climate
-        features:
-          - type: climate-hvac-modes
-            hvac_modes:
-              - heat
-              - cool
-              - heat_cool
-              - "off"
-
-      # Active Devices
-      - type: entity-filter
-        entities:
-          - light.living_room
-          - light.bedroom
-          - light.kitchen
-          - light.bathroom
-          - light.office
-          - switch.coffee_maker
-          - fan.bedroom
-        state_filter:
-          - "on"
-        card:
-          type: glance
-          title: Active Devices
-          show_state: false
-
-  # Living Room View
-  - title: Living Room
-    path: living-room
-    icon: mdi:sofa
-    cards:
-      - type: entities
-        title: Lights
-        state_color: true
-        entities:
-          - entity: light.living_room_ceiling
-            name: Ceiling Light
-          - entity: light.living_room_lamp
-            name: Floor Lamp
-          - entity: light.living_room_strip
-            name: LED Strip
-          - type: divider
-          - entity: input_select.living_room_scene
-            name: Scene
-
-      - type: media-control
-        entity: media_player.living_room_tv
-
-      - type: horizontal-stack
-        cards:
-          - type: gauge
-            entity: sensor.living_room_temperature
-            name: Temperature
-            min: 15
-            max: 35
-            severity:
-              green: 18
-              yellow: 26
-              red: 30
-          - type: gauge
-            entity: sensor.living_room_humidity
-            name: Humidity
-            min: 0
-            max: 100
-            severity:
-              red: 30
-              yellow: 40
-              green: 50
-
-      - type: picture-elements
-        image: /local/images/living_room.png
-        elements:
-          - type: state-icon
-            entity: light.living_room_ceiling
-            tap_action:
-              action: toggle
-            style:
-              top: 20%
-              left: 50%
-          - type: state-icon
-            entity: light.living_room_lamp
-            tap_action:
-              action: toggle
-            style:
-              top: 60%
-              left: 20%
-          - type: state-label
-            entity: sensor.living_room_temperature
-            style:
-              top: 10%
-              left: 85%
-              color: white
-              background: "rgba(0,0,0,0.5)"
-              padding: 5px
-              border-radius: 5px
-
-  # Lights View
-  - title: Lights
-    path: lights
-    icon: mdi:lightbulb-group
-    cards:
-      - type: entities
-        title: All Lights
-        show_header_toggle: true
-        state_color: true
-        entities:
-          - type: section
-            label: Living Room
-          - light.living_room_ceiling
-          - light.living_room_lamp
-          - light.living_room_strip
-          - type: section
-            label: Bedroom
-          - light.bedroom_ceiling
-          - light.bedroom_nightstand
-          - type: section
-            label: Other Rooms
-          - light.kitchen
-          - light.bathroom
-          - light.office
-          - light.hallway
+            grid_options:
+              columns: 12
+            features:
+              - type: area-controls
+                controls:
+                  - light
+                  - switch
 
       - type: grid
-        columns: 3
-        square: true
+        background:                 # tinted section (2026.4)
+          color: blue
+          opacity: 20
         cards:
-          - type: light
-            entity: light.living_room_ceiling
-            name: Living
-          - type: light
-            entity: light.bedroom_ceiling
-            name: Bedroom
-          - type: light
-            entity: light.kitchen
-            name: Kitchen
-          - type: light
-            entity: light.bathroom
-            name: Bathroom
-          - type: light
-            entity: light.office
-            name: Office
-          - type: light
-            entity: light.hallway
-            name: Hallway
+          - type: heading
+            heading: Bedroom
+            heading_style: title
+            badges:
+              - type: entity
+                entity: sensor.bedroom_temperature
+          - type: tile
+            entity: light.bedroom
+            # Name objects (2025.11): "Bedroom Lamp" built from area + entity.
+            name:
+              - type: area
+              - type: entity
+            grid_options:
+              columns: 12
+            features:
+              - type: light-brightness
+              - type: light-color-favorites
+          - type: tile
+            entity: fan.bedroom
+            name: Fan
+            grid_options:
+              columns: 6
+            features:
+              - type: fan-speed
+          - type: tile
+            entity: switch.electric_blanket
+            name: Blanket
+            grid_options:
+              columns: 6
+            features:
+              - type: toggle
 
-  # Climate View
-  - title: Climate
-    path: climate
-    icon: mdi:thermostat
-    cards:
-      - type: thermostat
-        entity: climate.main_thermostat
-        features:
-          - type: climate-hvac-modes
-            hvac_modes:
-              - heat
-              - cool
-              - heat_cool
-              - "off"
-          - type: target-temperature
+      # Every control and sensor of one device, generated. Useful for a
+      # washing machine or a printer that has many entities.
+      - strategy:
+          type: device
+          device_id: 3f2a9c8e5b1d4e6f8a7b6c5d4e3f2a1b
+          display: tiles
+          categories:
+            - control
+            - sensor
 
-      - type: history-graph
-        title: Temperature History
-        hours_to_show: 24
-        entities:
-          - entity: sensor.indoor_temperature
-            name: Indoor
-          - entity: sensor.outdoor_temperature
-            name: Outdoor
-          - entity: sensor.thermostat_target
-            name: Target
+      # All lights on the ground floor, kept up to date when lights are added.
+      - strategy:
+          type: entities
+          title: Ground floor lights
+          entity_types:
+            - light
+          target:
+            floor_id: ground_floor
 
-      - type: entities
-        title: Climate Controls
-        entities:
-          - entity: input_number.target_temperature
-            name: Target Temperature
-          - entity: input_select.hvac_mode
-            name: HVAC Mode
-          - entity: input_boolean.eco_mode
-            name: Eco Mode
-          - entity: schedule.heating_schedule
-            name: Heating Schedule
-
-      - type: statistics-graph
-        title: Energy Usage
-        entities:
-          - sensor.hvac_energy_usage
-        stat_types:
-          - mean
-          - max
-        period:
-          calendar:
-            period: day
-
-  # Security View
-  - title: Security
-    path: security
-    icon: mdi:shield-home
-    cards:
-      - type: alarm-panel
-        entity: alarm_control_panel.home_alarm
-        states:
-          - arm_home
-          - arm_away
-          - arm_night
-
-      - type: entities
-        title: Door & Window Sensors
-        state_color: true
-        entities:
-          - entity: binary_sensor.front_door
-            name: Front Door
-            icon: mdi:door
-          - entity: binary_sensor.back_door
-            name: Back Door
-            icon: mdi:door
-          - entity: binary_sensor.garage_door
-            name: Garage Door
-            icon: mdi:garage
-          - type: divider
-          - entity: binary_sensor.living_room_window
-            name: Living Room Window
-            icon: mdi:window-closed
-          - entity: binary_sensor.bedroom_window
-            name: Bedroom Window
-            icon: mdi:window-closed
-
-      - type: horizontal-stack
-        cards:
-          - type: picture-entity
-            entity: camera.front_door
-            name: Front Door
-            camera_view: live
-          - type: picture-entity
-            entity: camera.backyard
-            name: Backyard
-            camera_view: live
-
-      - type: logbook
-        title: Security Events
-        entities:
-          - alarm_control_panel.home_alarm
-          - binary_sensor.front_door
-          - binary_sensor.back_door
-          - binary_sensor.motion_sensor
-        hours_to_show: 24
-
-  # Energy View
+  # ===========================================================================
+  # VIEW 3: Energy (built-in energy cards need the Energy dashboard configured)
+  # ===========================================================================
   - title: Energy
     path: energy
     icon: mdi:lightning-bolt
-    cards:
-      - type: energy-distribution
-        link_dashboard: true
+    type: sections
+    max_columns: 2
+    sections:
+      - type: grid
+        column_span: 2
+        cards:
+          - type: heading
+            heading: Today
+          - type: energy-date-selection
+            grid_options:
+              columns: full
+          - type: energy-distribution
+            grid_options:
+              columns: 6
+          - type: energy-sankey
+            grid_options:
+              columns: 6
 
-      - type: gauge
-        entity: sensor.current_power_usage
-        name: Current Usage
-        min: 0
-        max: 10000
-        needle: true
-        severity:
-          green: 0
-          yellow: 3000
-          red: 6000
-
-      - type: statistics-graph
-        title: Daily Usage
-        entities:
-          - sensor.daily_energy_usage
-        stat_types:
-          - sum
-        period:
-          calendar:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Live power
+            badges:
+              - type: entity
+                entity: sensor.house_power
+                color: amber
+          - type: gauge
+            entity: sensor.house_power
+            name: House
+            min: 0
+            max: 6000
+            needle: true
+            severity:
+              green: 0
+              yellow: 3000
+              red: 5000
+            grid_options:
+              columns: 6
+          - type: tile
+            entity: sensor.solar_power
+            name: Solar
+            grid_options:
+              columns: 6
+            features:
+              - type: trend-graph
+                hours_to_show: 12
+          - type: statistics-graph
+            title: Grid use, last 7 days
+            entities:
+              - entity: sensor.grid_energy_import
+                name: Import
+              - entity: sensor.grid_energy_export
+                name: Export
+            stat_types:
+              - change
             period: day
+            days_to_show: 7
+            chart_type: bar
+            grid_options:
+              columns: 12
 
-      - type: entities
-        title: High Consumers
-        entities:
-          - entity: sensor.hvac_power
-            name: HVAC
-          - entity: sensor.washer_power
-            name: Washing Machine
-          - entity: sensor.dryer_power
-            name: Dryer
-          - entity: sensor.ev_charger_power
-            name: EV Charger
-
-  # Media View
-  - title: Media
-    path: media
-    icon: mdi:play-circle
-    cards:
-      - type: media-control
-        entity: media_player.living_room_tv
-
-      - type: media-control
-        entity: media_player.bedroom_speaker
-
-      - type: media-control
-        entity: media_player.kitchen_speaker
-
-      - type: entities
-        title: Media Sources
-        entities:
-          - entity: input_select.tv_source
-            name: TV Source
-          - entity: script.play_spotify
-            name: Start Spotify
-          - entity: script.play_radio
-            name: Start Radio
-
-  # Calendar View
-  - title: Calendar
-    path: calendar
-    icon: mdi:calendar
-    panel: true
-    cards:
-      - type: calendar
-        entities:
-          - calendar.personal
-          - calendar.work
-          - calendar.family
-        initial_view: dayGridMonth
-
-  # Settings View
-  - title: Settings
-    path: settings
-    icon: mdi:cog
-    cards:
-      - type: entities
-        title: System
-        entities:
-          - entity: sensor.home_assistant_version
-            name: HA Version
-          - entity: sensor.processor_use
-            name: CPU Usage
-          - entity: sensor.memory_use_percent
-            name: Memory Usage
-          - entity: sensor.disk_use_percent
-            name: Disk Usage
-          - type: divider
-          - entity: input_boolean.guest_mode
-            name: Guest Mode
-          - entity: input_boolean.vacation_mode
-            name: Vacation Mode
-
-      - type: markdown
-        title: Quick Links
-        content: |
-          ## Useful Links
-          - [Home Assistant Docs](https://www.home-assistant.io/docs/)
-          - [Community Forum](https://community.home-assistant.io/)
-
-          ## System Info
-          - **Uptime:** {{ states('sensor.uptime') }}
-          - **Last Restart:** {{ states('sensor.last_restart') }}
+      - type: grid
+        cards:
+          - type: heading
+            heading: Appliances
+          # Power split between devices of the same device class (2026.2).
+          - type: distribution
+            entities:
+              - sensor.washing_machine_power
+              - sensor.dishwasher_power
+              - sensor.oven_power
+            grid_options:
+              columns: 12
+          - type: tile
+            entity: sensor.washing_machine_remaining_time
+            name: Washer finishes
+            grid_options:
+              columns: 12
+            visibility:
+              - condition: state
+                entity: sensor.washing_machine_status
+                state_not: idle
+          - type: shortcut
+            label: Start dishwasher
+            description: Eco programme
+            icon: mdi:dishwasher
+            tap_action:
+              action: perform-action
+              perform_action: button.press
+              target:
+                entity_id: button.dishwasher_start
+              confirmation:
+                text: Start the dishwasher now?
+            grid_options:
+              columns: 12

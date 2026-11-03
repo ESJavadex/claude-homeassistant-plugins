@@ -1,0 +1,47 @@
+# Pre-2024.8 syntax that still loads but is deprecated. No hard errors.
+title: Legacy
+views:
+  # masonry view: cards and no type
+  - title: Old
+    path: old
+    badges:
+      - entity: person.ana
+        display_type: minimal
+    cards:
+      - type: button
+        entity: light.sofa
+        tap_action:
+          action: call-service
+          service: light.toggle
+          service_data:
+            entity_id: light.sofa
+      - type: entities
+        state_color: true
+        entities:
+          - light.sofa
+      - type: area
+        area: living_room
+        show_camera: true
+        navigation_path: /lovelace/living
+      - type: logbook
+        entities:
+          - light.sofa
+  - title: Sections
+    path: sections
+    type: sections
+    sections:
+      - type: grid
+        title: Living room
+        cards:
+          - type: heading
+            heading: Lights
+            entities:
+              - entity: light.sofa
+          - type: tile
+            entity: light.sofa
+            layout_options:
+              grid_columns: 2
+              grid_rows: 1
+            hold_action:
+              action: perform-action
+              service: light.turn_on

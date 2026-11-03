@@ -13,12 +13,11 @@ import json
 from pathlib import Path
 from typing import Dict, List, Set, Optional
 
-try:
-    import yaml
-except ImportError:
-    print(json.dumps({
-        "error": "PyYAML not installed. Run: pip install pyyaml"
-    }))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from ha_yaml import iter_yaml_files, load_text, require_yaml  # noqa: E402
+
+if require_yaml():
+    print(json.dumps({"error": require_yaml()}))
     sys.exit(1)
 
 
@@ -44,6 +43,9 @@ class HAConfigChecker:
         self.includes_found: List[dict] = []
         self.issues: List[dict] = []
         self.suggestions: List[str] = []
+        self.secret_refs: Dict[str, str] = {}
+        self.automation_ids: Dict[str, str] = {}
+        self.config_root: Optional[Path] = None
 
     def check_path(self, path: str) -> dict:
         """Check a file or directory."""
@@ -60,8 +62,9 @@ class HAConfigChecker:
         return {"error": f"Invalid path: {path}"}
 
     def _check_directory(self, directory: Path) -> dict:
-        """Check all YAML files in a directory."""
-        yaml_files = list(directory.glob("**/*.yaml")) + list(directory.glob("**/*.yml"))
+        """Check all YAML files in a directory (skips .storage, custom_components, www...)."""
+        self.config_root = directory
+        yaml_files = list(iter_yaml_files(directory))
 
         if not yaml_files:
             return {"error": f"No YAML files found in {directory}"}
@@ -73,28 +76,62 @@ class HAConfigChecker:
         for yaml_file in yaml_files:
             self._analyze_file(yaml_file)
 
+        self._check_secrets_defined()
         return self._generate_report(directory, has_main_config)
 
     def _check_single_file(self, file_path: Path) -> dict:
         """Check a single YAML file."""
+        self.config_root = file_path.parent
         self._analyze_file(file_path)
-        return self._generate_report(file_path.parent, False)
+        self._check_secrets_defined()
+        return self._generate_report(file_path.parent, (file_path.parent / "configuration.yaml").exists())
+
+    def _check_secrets_defined(self) -> None:
+        """Report !secret names that secrets.yaml does not define. Values are never read out."""
+        if not self.secret_refs or self.config_root is None:
+            return
+        secrets_file = self.config_root / "secrets.yaml"
+        if not secrets_file.exists():
+            self.issues.append({
+                "file": str(secrets_file),
+                "type": "missing_secrets_file",
+                "message": f"{len(self.secret_refs)} !secret references but no secrets.yaml next to the config",
+            })
+            return
+        try:
+            data, _ = load_text(secrets_file.read_text(encoding="utf-8"))
+        except Exception:
+            self.suggestions.append("secrets.yaml could not be read; skipped the secret check")
+            return
+        defined = set(data.keys()) if isinstance(data, dict) else set()
+        for name, where in sorted(self.secret_refs.items()):
+            if name not in defined:
+                self.issues.append({
+                    "file": where,
+                    "type": "undefined_secret",
+                    "message": f"!secret {name} is not defined in secrets.yaml",
+                })
 
     def _analyze_file(self, file_path: Path) -> None:
         """Analyze a single YAML file."""
         self.files_checked.append(str(file_path))
 
+        if file_path.name == "secrets.yaml":
+            return  # never parse or report secret values
         try:
             content = file_path.read_text(encoding='utf-8')
-            data = yaml.safe_load(content)
-        except yaml.YAMLError as e:
-            self.issues.append({
-                "file": str(file_path),
-                "type": "syntax_error",
-                "message": str(e)
-            })
+            data, duplicates = load_text(content)
+        except PermissionError as e:
+            self.issues.append({"file": str(file_path), "type": "read_error", "message": str(e)})
             return
         except Exception as e:
+            if type(e).__name__.endswith("Error") and "yaml" in type(e).__module__:
+                self.issues.append({
+                    "file": str(file_path),
+                    "type": "syntax_error",
+                    "message": str(e)
+                })
+                return
             self.issues.append({
                 "file": str(file_path),
                 "type": "read_error",
@@ -102,8 +139,23 @@ class HAConfigChecker:
             })
             return
 
+        for key, line in duplicates:
+            self.issues.append({
+                "file": str(file_path),
+                "type": "duplicate_key",
+                "message": f"Line {line}: duplicate key '{key}' (only the last one is used)",
+            })
+
         if not data:
             return
+
+        # automations.yaml / scripts.yaml style files (no top-level domain key)
+        if isinstance(data, list) and file_path.name.startswith("automation"):
+            self._check_automations(data, file_path)
+        if isinstance(data, dict) and file_path.name.startswith("script") and all(
+            isinstance(v, dict) and "sequence" in v for v in data.values()
+        ):
+            self._check_scripts(data, file_path)
 
         # Check for !include directives in raw content
         self._find_includes(content, file_path)
@@ -126,17 +178,30 @@ class HAConfigChecker:
         ]
 
         for pattern, include_type in patterns:
-            for match in re.finditer(pattern, content):
+            for match in re.finditer(pattern + r'(?=\s|$)', content):
+                target = match.group(1).strip("'\"")
                 self.includes_found.append({
                     "file": str(file_path),
                     "type": include_type,
-                    "target": match.group(1)
+                    "target": target
                 })
+                resolved = (file_path.parent / target)
+                if not resolved.exists() and include_type != "include":
+                    self.suggestions.append(
+                        f"{file_path.name}: !{include_type} {target} points to a folder that does not exist (HA treats it as empty)"
+                    )
+                elif not resolved.exists():
+                    self.issues.append({
+                        "file": str(file_path),
+                        "type": "missing_include",
+                        "message": f"!{include_type} {target}: not found (relative to {file_path.parent.name or '.'}/)",
+                    })
 
     def _find_secrets(self, content: str, file_path: Path) -> None:
         """Find !secret references."""
-        for match in re.finditer(r'!secret\s+(\S+)', content):
+        for match in re.finditer(r'!secret\s+([A-Za-z0-9_\-]+)', content):
             self.secrets_used.add(match.group(1))
+            self.secret_refs.setdefault(match.group(1), str(file_path))
 
     def _analyze_structure(self, data: dict, file_path: Path) -> None:
         """Analyze configuration structure."""
@@ -180,12 +245,23 @@ class HAConfigChecker:
                 continue
 
             # Check for missing alias
-            if "alias" not in automation:
-                self.issues.append({
-                    "file": str(file_path),
-                    "type": "missing_alias",
-                    "message": f"Automation #{i+1} is missing 'alias'"
-                })
+            if "alias" not in automation and "use_blueprint" not in automation:
+                self.suggestions.append(
+                    f"Automation #{i+1} in {file_path.name} has no 'alias'"
+                )
+
+            # Duplicate ids break the UI editor and traces
+            aid = automation.get("id")
+            if aid is not None:
+                where = f"{file_path.name}#{i+1}"
+                if str(aid) in self.automation_ids:
+                    self.issues.append({
+                        "file": str(file_path),
+                        "type": "duplicate_automation_id",
+                        "message": f"Automation id '{aid}' is also used in {self.automation_ids[str(aid)]}",
+                    })
+                else:
+                    self.automation_ids[str(aid)] = where
 
             # Check for missing id
             if "id" not in automation:

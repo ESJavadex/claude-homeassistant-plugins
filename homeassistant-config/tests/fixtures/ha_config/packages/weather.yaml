@@ -1,0 +1,6 @@
+# A package can hold any domain. The API key comes from secrets.yaml.
+rest_command:
+  ping_weather:
+    url: https://example.com/api
+    headers:
+      Authorization: !secret weather_api_key

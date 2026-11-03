@@ -1,22 +1,15 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "homeassistant-config",
-  "description": "Create, modify, and troubleshoot Home Assistant configuration files and Lovelace dashboards",
-  "version": "1.5.2",
+  "displayName": "Home Assistant Config",
+  "version": "2.0.0",
+  "description": "Write, check and modernise Home Assistant YAML (automations, scripts, templates, blueprints, dashboards) with the syntax of Home Assistant 2026",
   "author": {
-    "name": "claude-homeassistant-plugins"
+    "name": "ESJavadex",
+    "url": "https://github.com/ESJavadex"
   },
-  "agents": ["./agents/ha-suggestions.md"],
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Write|Edit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/validate-before-save.sh"
-          }
-        ]
-      }
-    ]
-  }
+  "homepage": "https://github.com/ESJavadex/claude-homeassistant-plugins",
+  "repository": "https://github.com/ESJavadex/claude-homeassistant-plugins",
+  "license": "MIT",
+  "keywords": ["home-assistant", "homeassistant", "yaml", "automation", "lovelace", "dashboard", "blueprint", "smart-home"]
 }

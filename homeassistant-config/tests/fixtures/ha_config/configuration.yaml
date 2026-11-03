@@ -1,0 +1,24 @@
+# Modern configuration: must produce no findings at all.
+default_config:
+
+homeassistant:
+  name: Home
+  packages: !include_dir_named packages
+
+automation: !include automations.yaml
+script: !include scripts.yaml
+template: !include templates.yaml
+
+lovelace:
+  resource_mode: yaml
+  resources:
+    - url: /local/my-card.js
+      type: module
+  dashboards:
+    lovelace:
+      mode: yaml
+      filename: ui-lovelace.yaml
+      title: Overview
+
+logger:
+  default: warning

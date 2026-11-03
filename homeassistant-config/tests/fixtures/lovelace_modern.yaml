@@ -1,0 +1,114 @@
+# Current (2026.x) dashboard syntax. Must validate with no errors and no warnings.
+title: Modern
+views:
+  - title: Home
+    path: home
+    type: sections
+    max_columns: 3
+    header:
+      layout: center
+      badges_position: top
+      badges_wrap: wrap
+      card:
+        type: markdown
+        text_only: true
+        content: "# Home"
+    badges:
+      - type: entity
+        entity: sensor.outdoor_temperature
+        show_name: false
+        show_state: true
+        show_icon: true
+      - type: shortcut
+        text: Good night
+        tap_action:
+          action: perform-action
+          perform_action: script.good_night
+    sections:
+      - type: grid
+        column_span: 2
+        visibility:
+          - condition: not
+            conditions:
+              - condition: user
+                users:
+                  - 581fca7fdc014b8b894519cc531f9a04
+        cards:
+          - type: heading
+            heading: Kitchen
+            badges:
+              - type: entity
+                entity: sensor.kitchen_temperature
+              - type: button
+                icon: mdi:lightbulb-off
+                text: All off
+                tap_action:
+                  action: perform-action
+                  perform_action: light.turn_off
+                  target:
+                    area_id: kitchen
+          - type: tile
+            entity: light.kitchen
+            color: amber
+            grid_options:
+              columns: 6
+              rows: 1
+            features:
+              - type: light-brightness
+              - type: light-color
+          - type: tile
+            entity: climate.kitchen
+            grid_options:
+              columns: full
+            features_position: inline
+            features:
+              - type: climate-hvac-modes
+                hvac_modes:
+                  - heat
+                  - "off"
+              - type: target-temperature
+          - type: area
+            area: kitchen
+            display_type: compact
+            tap_action:
+              action: navigate
+              navigation_path: /lovelace/kitchen
+            features:
+              - type: area-controls
+          - type: logbook
+            target:
+              entity_id: light.kitchen
+          - type: entities
+            color: state
+            entities:
+              - entity: switch.kettle
+                tap_action:
+                  action: url
+                  url_path: https://example.com
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: binary_sensor.door
+                state: "on"
+            card:
+              type: tile
+              entity: binary_sensor.door
+          - type: vertical-stack
+            cards:
+              - type: clock
+                clock_style: analog
+              - type: date
+                date_format: long
+      - strategy:
+          type: common-controls
+          limit: 4
+      - strategy:
+          type: entities
+          entity_types:
+            - light
+          target:
+            floor_id: ground
+    footer:
+      card:
+        type: tile
+        entity: alarm_control_panel.home

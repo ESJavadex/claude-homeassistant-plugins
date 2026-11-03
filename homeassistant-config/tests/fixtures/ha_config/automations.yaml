@@ -1,0 +1,43 @@
+- id: hall_motion_light
+  alias: Hall light on motion
+  mode: restart
+  triggers:
+    - trigger: state
+      entity_id: binary_sensor.hall_motion
+      to: "on"
+    - trigger: light.turned_on
+      target:
+        area_id: hall
+      options:
+        behavior: first
+  conditions:
+    - condition: light.is_on
+      target:
+        entity_id: light.hall
+      options:
+        behavior: any
+    - condition: state
+      entity_id: input_select.house_mode
+      state: home
+      for: "00:01:00"
+  actions:
+    - action: light.turn_on
+      target:
+        entity_id: light.hall
+        exclude:
+          label_id: night_light
+      data:
+        color_temp_kelvin: 3000
+        brightness_pct: 60
+    - wait_for_trigger:
+        - trigger: state
+          entity_id: binary_sensor.hall_motion
+          to: "off"
+          for: "00:02:00"
+    - action: hassio.backup_partial
+      continue_on_error: true
+      data:
+        name: nightly
+    - action: notify.mobile_app_phone
+      data:
+        message: "{{ entity_name('light.hall') }} is on for {{ time_since(states.light.hall.last_changed) }}"
