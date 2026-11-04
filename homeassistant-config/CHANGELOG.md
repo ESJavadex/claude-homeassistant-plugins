@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.1.4 (2026-11-04)
+
+From issue #82 of claude-code-ha.
+
+- **Dashboard findings say where to look.** UI dashboards are stored as JSON
+  without line numbers, so `views[1].sections[1].cards[0]` was all you got.
+  Every dashboard finding now has a `where` field with what the editor shows:
+  `view "Living Room" (tab 2, /living-room) > section "Lights" (#2) > card 2
+  (tile, "light.sofa")`. Nested cards (stacks, conditional) are listed too.
+  `/ha-check` and `/ha-upgrade` use it when they report.
+- **No warning for `cards: []` on a sections view.** The UI editor writes it on
+  every new sections view; only cards that would really be ignored are
+  reported.
+
 ## 2.1.3 (2026-11-03)
 
 From testers' feedback on 2.1.2 (issue #75 of claude-code-ha).

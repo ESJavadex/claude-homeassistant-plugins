@@ -157,6 +157,8 @@ class LovelaceValidator:
         self._seen: Set[int] = set()
         self.skipped: Optional[str] = None
         self._warned_entities: Set[str] = set()
+        # path prefix -> what the user sees in the editor ("view \"Living Room\"")
+        self._labels: Dict[str, str] = {}
 
     # ------------------------------------------------------------------ util
 
@@ -168,9 +170,74 @@ class LovelaceValidator:
             "level": level,
             "line": line,
             "path": path or "(root)",
+            "where": self.where(path),
             "message": message,
             "since": since,
         })
+
+    # UI dashboards live in .storage as JSON: no line numbers, and
+    # `views[1].sections[1].cards[0]` means nothing in the editor. Each view,
+    # section and card registers a label the user can find on screen.
+
+    def _label(self, path: str, label: str) -> None:
+        if path:
+            self._labels[path] = label
+
+    def where(self, path: str) -> str:
+        parts = []
+        for key, label in self._labels.items():  # parents register before children
+            if path == key or (path.startswith(key) and path[len(key)] in ".["):
+                parts.append(label)
+        return " > ".join(parts)
+
+    @staticmethod
+    def _position(path: str) -> Optional[int]:
+        m = re.search(r"\[(\d+)\]$", path)
+        return int(m.group(1)) + 1 if m else None
+
+    @staticmethod
+    def _name(node: dict, *keys: str) -> Optional[str]:
+        for key in keys:
+            value = node.get(key)
+            if isinstance(value, str) and value.strip() and not _is_dynamic(value):
+                value = " ".join(value.split())
+                return value if len(value) <= 40 else value[:39] + "…"
+        return None
+
+    def _label_view(self, view: dict, path: str) -> None:
+        pos = self._position(path)
+        title = self._name(view, "title")
+        url = view.get("path") if isinstance(view.get("path"), str) else None
+        label = f'view "{title}"' if title else "view"
+        extra = [f"tab {pos}"] if pos else []
+        if url:
+            extra.append(f"/{url}")
+        if extra:
+            label += f" ({', '.join(extra)})"
+        if title or pos:
+            self._label(path, label)
+
+    def _label_section(self, section: dict, path: str) -> None:
+        name = self._name(section, "title")
+        cards = section.get("cards")
+        if not name and isinstance(cards, list) and cards and isinstance(cards[0], dict) \
+                and cards[0].get("type") == "heading":
+            name = self._name(cards[0], "heading")
+        pos = self._position(path)
+        if name:
+            self._label(path, f'section "{name}"' + (f" (#{pos})" if pos else ""))
+        elif pos:
+            self._label(path, f"section {pos}")
+
+    def _label_card(self, card: dict, path: str) -> None:
+        pos = self._position(path)
+        ctype = card.get("type") if isinstance(card.get("type"), str) else "no type"
+        name = self._name(card, "name", "title", "heading", "entity")
+        detail = f'{ctype}, "{name}"' if name else ctype
+        if pos:
+            self._label(path, f"card {pos} ({detail})")
+        elif path.endswith(".card"):
+            self._label(path, f"inner card ({detail})")
 
     def _once(self, node: Any) -> bool:
         """True the first time a given mapping is checked."""
@@ -309,6 +376,7 @@ class LovelaceValidator:
             self.add("error", None, path, "A view must be a mapping")
             return
         self.views += 1
+        self._label_view(view, path)
 
         if "strategy" in view:
             self.strategy(view["strategy"], f"{path}.strategy", VIEW_STRATEGIES, "view")
@@ -330,7 +398,8 @@ class LovelaceValidator:
         elif isinstance(vtype, str) and not vtype.startswith("custom:") and vtype not in VIEW_TYPES:
             self.add("warning", view, f"{path}.type", f"Unknown view type '{vtype}'")
 
-        if vtype == "sections" and "cards" in view and "sections" not in view:
+        # `cards: []` is what the UI editor writes for a new, empty sections view.
+        if vtype == "sections" and view.get("cards") and "sections" not in view:
             self.add("warning", view, f"{path}.cards",
                      "A sections view ignores `cards:`; put cards inside `sections:`")
 
@@ -367,6 +436,7 @@ class LovelaceValidator:
             self.add("error", None, path, "A section must be a mapping")
             return
         self.sections += 1
+        self._label_section(section, path)
         if "strategy" in section:
             self.strategy(section["strategy"], f"{path}.strategy", SECTION_STRATEGIES, "section")
             self.conditions(section.get("visibility"), f"{path}.visibility", section)
@@ -414,6 +484,7 @@ class LovelaceValidator:
             return
         if not self._once(card):
             return
+        self._label_card(card, path)
 
         ctype = card.get("type")
         if not ctype:
@@ -761,7 +832,8 @@ class LovelaceValidator:
         def flat(f: Dict[str, Any]) -> str:
             prefix = f"Line {f['line']}: " if f["line"] else ""
             since = f" (since {f['since']})" if f["since"] else ""
-            return f"{prefix}{f['path']}: {f['message']}{since}"
+            where = f" [{f['where']}]" if f["where"] else ""
+            return f"{prefix}{f['path']}{where}: {f['message']}{since}"
 
         errors = [flat(f) for f in self.findings if f["level"] == "error"]
         warnings = [flat(f) for f in self.findings if f["level"] == "warning"]
