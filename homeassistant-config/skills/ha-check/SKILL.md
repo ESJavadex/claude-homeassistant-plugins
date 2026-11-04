@@ -28,6 +28,9 @@ Scripts live in `${CLAUDE_PLUGIN_ROOT}/skills/homeassistant-config/scripts/`.
 Then report briefly:
 
 - **Will not work** (errors), grouped by file, with line numbers and the fix.
+  For dashboards, also say where it is from the finding's `where` (view title
+  and tab, section heading, card number and type): UI dashboards have no line
+  numbers, and that is what the user sees in the editor.
 - **Deprecated / ignored** (warnings): what breaks and when.
 - **Old style, still works** (info): just a count per file, plus one line
   offering `/ha-upgrade` to modernise them.

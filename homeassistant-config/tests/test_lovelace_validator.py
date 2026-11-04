@@ -61,7 +61,7 @@ class ModernFixture(unittest.TestCase):
         for key in ("valid", "file", "format", "summary", "findings", "errors", "warnings"):
             self.assertIn(key, result)
         for f in result["findings"]:
-            self.assertEqual(set(f), {"level", "line", "path", "message", "since"})
+            self.assertEqual(set(f), {"level", "line", "path", "where", "message", "since"})
             self.assertIn(f["level"], ("error", "warning", "info"))
 
 
@@ -300,3 +300,70 @@ class CustomCardsAndRegistries(unittest.TestCase):
             r = LovelaceValidator().validate_file(str(f))
             self.assertTrue(r["valid"])
             self.assertIn("skipped", r)
+
+
+class FindingLocation(unittest.TestCase):
+    """UI dashboards have no line numbers: say where in the editor to look (issue #82)."""
+
+    DASHBOARD = {
+        "version": 1, "key": "lovelace.rooms",
+        "data": {"config": {"views": [
+            {"title": "Kitchen", "path": "kitchen", "badges": [], "cards": [], "type": "sections"},
+            {"title": "Living Room", "path": "living-room", "type": "sections", "sections": [
+                {"type": "grid", "cards": [{"type": "heading", "heading": "Climate"}]},
+                {"type": "grid", "cards": [
+                    {"type": "heading", "heading": "Lights"},
+                    {"type": "tile", "entity": "light.sofa", "grid_options": {"rows": 8.7}},
+                    {"type": "vertical-stack", "cards": [
+                        {"type": "button", "name": "Movie",
+                         "tap_action": {"action": "call-service", "service": "scene.turn_on"}},
+                    ]},
+                ]},
+                {"type": "grid", "cards": [{"type": "tile", "entity": "light.lamp", "layout_options": {}}]},
+            ]},
+        ]}},
+    }
+
+    def run_storage(self):
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / "lovelace.rooms"
+            f.write_text(json.dumps(self.DASHBOARD))
+            return LovelaceValidator().validate_file(str(f))
+
+    def finding(self, result, needle):
+        return next(f for f in result["findings"] if needle in f["path"])
+
+    def test_view_section_and_card_are_named(self):
+        r = self.run_storage()
+        f = self.finding(r, "grid_options.rows")
+        self.assertEqual(f["where"], 'view "Living Room" (tab 2, /living-room) > '
+                                     'section "Lights" (#2) > card 2 (tile, "light.sofa")')
+        self.assertTrue(any('[view "Living Room"' in w for w in r["warnings"]))
+
+    def test_nested_card_and_untitled_section(self):
+        r = self.run_storage()
+        self.assertTrue(self.finding(r, "tap_action")["where"].endswith(
+            '> card 3 (vertical-stack) > card 1 (button, "Movie")'))
+        self.assertIn("> section 3 > card 1 (tile", self.finding(r, "layout_options")["where"])
+
+    def test_empty_cards_on_sections_view_is_fine(self):
+        # The UI editor writes `cards: []` on a new sections view.
+        r = self.run_storage()
+        self.assertFalse(any(f["path"] == "views[0].cards" for f in r["findings"]))
+        r = run_text("""
+            views:
+              - type: sections
+                cards:
+                  - type: markdown
+                    content: hi
+            """)
+        self.assertTrue(has(r, "warning", "ignores `cards:`"))
+
+    def test_snippet_has_no_location(self):
+        r = run_text("""
+            type: tile
+            entity: light.x
+            grid_options:
+              rows: 1.5
+            """)
+        self.assertEqual(r["findings"][0]["where"], "")

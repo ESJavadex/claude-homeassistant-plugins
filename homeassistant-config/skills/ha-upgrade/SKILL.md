@@ -56,7 +56,10 @@ Target: `$ARGUMENTS`, or `/config`.
    - UI-managed `automations.yaml` / `scripts.yaml`: editing is fine, keep `id`s.
    - Do not touch `.storage/` files while HA is running; for UI dashboards,
      tell the user what to change in the editor instead, or edit the JSON
-     only if they stop Home Assistant first.
+     only if they stop Home Assistant first. Name the dashboard and copy the
+     finding's `where` (view title and tab, section heading, card number and
+     type), not just `views[1].sections[1].cards[0]`: the JSON has no line
+     numbers and the editor shows titles, not indexes.
 5. **Verify.** Re-run the validator (the error and warning counts must drop to
    zero for the levels you applied), then `ha core check` if available, then
    reload (`automation.reload`, `script.reload`, `template.reload`) or ask the
