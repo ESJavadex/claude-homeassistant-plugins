@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **Mushroom cards are named in `where`.** Template and title cards keep
+  their label in `primary`, so the location now reads
+  `card 1 (custom:mushroom-template-card, "Arrive home")` instead of the type
+  alone.
+
 ## 2.1.4 (2026-11-04)
 
 From issue #82 of claude-code-ha.
