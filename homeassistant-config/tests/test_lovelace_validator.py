@@ -367,3 +367,17 @@ class FindingLocation(unittest.TestCase):
               rows: 1.5
             """)
         self.assertEqual(r["findings"][0]["where"], "")
+
+    def test_mushroom_primary_is_used_as_name(self):
+        r = run_text("""
+            views:
+              - title: Home
+                cards:
+                  - type: custom:mushroom-template-card
+                    primary: Arrive home
+                    tap_action:
+                      action: call-service
+                      service: scene.turn_on
+            """)
+        f = next(f for f in r["findings"] if "tap_action" in f["path"])
+        self.assertIn('card 1 (custom:mushroom-template-card, "Arrive home")', f["where"])

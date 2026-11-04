@@ -232,7 +232,8 @@ class LovelaceValidator:
     def _label_card(self, card: dict, path: str) -> None:
         pos = self._position(path)
         ctype = card.get("type") if isinstance(card.get("type"), str) else "no type"
-        name = self._name(card, "name", "title", "heading", "entity")
+        # `primary`: Mushroom template/title cards
+        name = self._name(card, "name", "title", "heading", "primary", "entity")
         detail = f'{ctype}, "{name}"' if name else ctype
         if pos:
             self._label(path, f"card {pos} ({detail})")
